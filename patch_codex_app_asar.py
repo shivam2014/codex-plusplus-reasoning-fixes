@@ -92,6 +92,11 @@ def find_split_items_chunk(extracted_root):
         if f.name.startswith("split-items-into-render-groups-") and f.suffix == ".js": return f
     raise RuntimeError("Could not find split-items chunk")
 
+def find_shimmer_chunk(extracted_root):
+    for f in (extracted_root / "webview/assets").iterdir():
+        if f.name.startswith("thinking-shimmer-") and f.suffix == ".js": return f
+    raise RuntimeError("Could not find thinking-shimmer chunk")
+
 PATCHES = {
     # 1. Render-group builder: don't aggregate reasoning into exploration
     "show-reasoning": PatchRule(name="split_items_drop_reasoning_from_exploration",
@@ -114,6 +119,11 @@ PATCHES = {
         patched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(!0\\),p=!o'),
         replacement=r'[d,f]=(0,Z.useState)(!0),p=!o'),
     # 5. Remove max-height scroll constraint on reasoning body
+    "disable-shimmer": PatchRule(name="disable_thinking_shimmer",
+        unpatched=re.compile(r'!\(\w+===void 0\|\|\1\)'),
+        patched=re.compile(r'true'),
+        replacement=r'true',
+        expected_replacements=1),
     "reasoning-no-blink": PatchRule(name="reasoning_no_blink_during_stream",
         unpatched=re.compile(r'g=o\?\!\!h:d'),
         patched=re.compile(r'g=o\?\!0:d'),
@@ -130,6 +140,7 @@ FEATURE_BUNDLES = {
     "prevent-collapse": "composer",
     "reasoning-start-expanded": "composer",
     "reasoning-full-expand": "composer",
+    "disable-shimmer": "shimmer",
 }
 
 def main():
@@ -162,6 +173,7 @@ def main():
         bundles = {
             "composer": find_webview_bundle(extracted),
             "split-items": find_split_items_chunk(extracted),
+            "shimmer": find_shimmer_chunk(extracted),
         }
 
         all_statuses = []
