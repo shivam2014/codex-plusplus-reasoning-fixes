@@ -2,3 +2,4 @@ node_modules/
 *.asar
 Codex.app
 source/
+.DS_Store
