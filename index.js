@@ -6,17 +6,15 @@
  *
  * Features
  * --------
- *  • Exploration accordion stays open (fiber hook, no restart needed)
- *  • Reasoning/thinking items visible in the conversation
- *  • Reasoning style: scrollable (compact) or fully expanded (no clipping)
- *  • Tool outputs stay visible after execution
+ *  • Exploration accordion stays open (fiber hook, live)
+ *  • Reasoning items visible in conversation (ASAR patch)
+ *  • Reasoning display: scrollable or fully expanded (CSS injection, live)
+ *  • Tool outputs stay visible (ASAR patch)
  *
  * Acknowledgments
- * --------------
  *  • codex++: https://github.com/b-nnett/codex-plusplus
- *  • Original patch inspiration:
+ *  • Original ASAR patch inspiration:
  *    https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd
- *
  * License: MIT
  */
 
@@ -36,17 +34,16 @@ module.exports = {
     const state = {
       api,
       features: new Map(),
+      cssInjections: new Map(),
       defaults: {
         "exploration-keep-open": true,
         "show-reasoning": true,
-        "reasoning-expand": true,
-        "reasoning-full": false,
+        "reasoning-style": "expanded",  // "expanded" or "scroll"
         "show-tool-outputs": false,
       },
     };
     this._state = state;
 
-    // Register settings page
     if (typeof api.settings?.registerPage === "function") {
       this._pageHandle = api.settings.registerPage({
         id: "main",
@@ -61,10 +58,12 @@ module.exports = {
       });
     }
 
-    // Activate runtime-only features (non-ASAR)
-    for (const id of ["exploration-keep-open"]) {
-      const enabled = readFlag(api, id, state.defaults[id]);
-      if (enabled) activateFeature(state, id);
+    // Activate runtime features
+    this._state.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
+    applyReasoningStyle(state, this._state.reasoningStyle);
+
+    if (readFlag(state.api, "exploration-keep-open", true)) {
+      activateFeature(state, "exploration-keep-open");
     }
   },
 
@@ -75,6 +74,10 @@ module.exports = {
       try { f.dispose?.(); } catch (e) { s.api.log.warn("dispose failed", e); }
     }
     s.features.clear();
+    for (const [, dispose] of s.cssInjections) {
+      try { dispose?.(); } catch (e) {}
+    }
+    s.cssInjections.clear();
     this._pageHandle?.unregister();
   },
 };
@@ -82,75 +85,63 @@ module.exports = {
 // ─────────────────────────────────────────────────────────── settings UI ──
 
 function renderSettings(root, state) {
-  // ── Sections ──
-  const sections = [
-    {
-      title: "Exploration",
-      features: [
-        {
-          id: "exploration-keep-open",
-          label: "Keep accordion open",
-          desc: "Exploration panel stays expanded instead of auto-collapsing after Codex finishes searching and reading files.",
-        },
-      ],
-    },
-    {
-      title: "Reasoning",
-      features: [
-        {
-          id: "show-reasoning",
-          label: "Show in conversation",
-          desc: 'Show thinking steps and reasoning items in the conversation log. When off, they are hidden inside the exploration accordion.',
-          asar: true,
-        },
-        {
-          id: "reasoning-style",
-          kind: "choice",
-          label: "Content display",
-          desc: "Scroll: reasoning text fits in a compact box with scrolling. Expanded: no height limit, all text visible without scrolling.",
-          choices: [
-            { value: "scroll", label: "Scroll" },
-            { value: "expanded", label: "Expanded" },
-          ],
-          asar: true,
-        },
-      ],
-    },
-    {
-      title: "Tool Outputs",
-      features: [
-        {
-          id: "show-tool-outputs",
-          label: "Show in conversation",
-          desc: "Keep tool call outputs (command results, file contents, search results) visible after execution instead of collapsing.",
-          asar: true,
-        },
-      ],
-    },
-  ];
-
   const container = el("div", "flex flex-col gap-4");
-  for (const section of sections) {
-    const sec = el("section", "flex flex-col gap-2");
-    sec.appendChild(sectionTitle(section.title));
 
-    const card = roundedCard();
-    for (const f of section.features) {
-      if (f.kind === "choice") {
-        card.appendChild(choiceRow(state, f));
-      } else {
-        card.appendChild(featureRow(state, f));
-      }
-    }
-    sec.appendChild(card);
-    container.appendChild(sec);
-  }
+  // Section: Exploration
+  const expSection = el("section", "flex flex-col gap-2");
+  expSection.appendChild(sectionTitle("Exploration"));
+  const expCard = roundedCard();
+  expCard.appendChild(featureRow(state, {
+    id: "exploration-keep-open",
+    label: "Keep accordion open",
+    desc: "Exploration panel stays expanded after Codex finishes searching and reading files. No restart needed.",
+  }));
+  expSection.appendChild(expCard);
+  container.appendChild(expSection);
+
+  // Section: Reasoning
+  const rsnSection = el("section", "flex flex-col gap-2");
+  rsnSection.appendChild(sectionTitle("Reasoning"));
+  const rsnCard = roundedCard();
+
+  rsnCard.appendChild(featureRow(state, {
+    id: "show-reasoning",
+    label: "Show in conversation",
+    desc: "Thinking steps and reasoning items appear in the message log. Requires ASAR patch + restart.",
+    asar: true,
+  }));
+
+  rsnCard.appendChild(styleChoiceRow(state, {
+    id: "reasoning-style",
+    label: "Content display",
+    desc: "How reasoning text fits inside each item.",
+    choices: [
+      { value: "expanded", label: "Expanded" },
+      { value: "scroll", label: "Scroll" },
+    ],
+  }));
+
+  rsnSection.appendChild(rsnCard);
+  container.appendChild(rsnSection);
+
+  // Section: Tool Outputs
+  const tlSection = el("section", "flex flex-col gap-2");
+  tlSection.appendChild(sectionTitle("Tool Outputs"));
+  const tlCard = roundedCard();
+  tlCard.appendChild(featureRow(state, {
+    id: "show-tool-outputs",
+    label: "Show in conversation",
+    desc: "Tool call outputs stay visible after execution instead of collapsing. Requires ASAR patch + restart.",
+    asar: true,
+  }));
+  tlSection.appendChild(tlCard);
+  container.appendChild(tlSection);
+
   root.appendChild(container);
 }
 
 function featureRow(state, f) {
   const row = el("div", "flex items-center justify-between gap-4 p-3");
-
   const left = el("div", "flex min-w-0 flex-col gap-1");
   const label = el("div", "min-w-0 text-sm text-token-text-primary");
   label.textContent = f.label;
@@ -166,7 +157,14 @@ function featureRow(state, f) {
   const sw = switchControl(initial, async (next) => {
     writeFlag(state.api, f.id, next);
     if (f.asar) {
-      await triggerAsarPatch(state.api, next, [f.id]);
+      try {
+        const action = next ? "apply" : "revert";
+        const result = await state.api.ipc.invoke("reasoning-fixes:patch-asar", { action, features: [f.id] });
+        if (result?.ok) state.api.log.info("asar patch", action, f.id, "ok");
+        else state.api.log.error("asar patch", f.id, "failed", result?.error);
+      } catch (e) {
+        state.api.log.error("asar patch invoke failed", e);
+      }
     } else {
       if (next) activateFeature(state, f.id);
       else deactivateFeature(state, f.id);
@@ -176,7 +174,7 @@ function featureRow(state, f) {
   return row;
 }
 
-function choiceRow(state, f) {
+function styleChoiceRow(state, f) {
   const row = el("div", "flex flex-col gap-2 p-3");
 
   const left = el("div", "flex flex-col gap-1");
@@ -190,16 +188,12 @@ function choiceRow(state, f) {
   }
   row.appendChild(left);
 
-  // Segmented control
+  // Segmented control: Expanded | Scroll
+  const current = readStyle(state.api, "reasoning-style", "expanded");
   const segGroup = el("div", "flex gap-1");
+
   for (const choice of f.choices) {
-    // For reasoning style:
-    //   "scroll" = reasoning-expand=true, reasoning-full=false
-    //   "expanded" = reasoning-expand=true, reasoning-full=true
-    const isScroll = choice.value === "scroll";
-    const isSelected = isScroll
-      ? (readFlag(state.api, "reasoning-expand", true) && !readFlag(state.api, "reasoning-full", false))
-      : readFlag(state.api, "reasoning-full", false);
+    const isSelected = current === choice.value;
 
     const btn = document.createElement("button");
     btn.type = "button";
@@ -210,18 +204,13 @@ function choiceRow(state, f) {
         : "bg-token-foreground/5 text-token-text-secondary hover:bg-token-foreground/10");
     btn.textContent = choice.label;
 
-    btn.addEventListener("click", async () => {
-      if (isScroll) {
-        writeFlag(state.api, "reasoning-expand", true);
-        writeFlag(state.api, "reasoning-full", false);
-        await triggerAsarPatch(state.api, true, ["reasoning-expand"]);
-      } else {
-        writeFlag(state.api, "reasoning-expand", true);
-        writeFlag(state.api, "reasoning-full", true);
-        await triggerAsarPatch(state.api, true, ["reasoning-expand", "reasoning-full"]);
-      }
-      // Re-render the choice row to update selection highlight
-      row.replaceWith(choiceRow(state, f));
+    btn.addEventListener("click", () => {
+      const oldVal = readStyle(state.api, "reasoning-style", "expanded");
+      if (choice.value === oldVal) return;
+      writeStyle(state.api, "reasoning-style", choice.value);
+      applyReasoningStyle(state, choice.value);
+      // Re-render this row to update the selection highlight
+      row.replaceWith(styleChoiceRow(state, f));
     });
 
     segGroup.appendChild(btn);
@@ -230,17 +219,37 @@ function choiceRow(state, f) {
   return row;
 }
 
-async function triggerAsarPatch(api, enable, features) {
-  try {
-    const action = enable ? "apply" : "revert";
-    const result = await api.ipc.invoke("reasoning-fixes:patch-asar", { action, features });
-    if (result?.ok) {
-      api.log.info("asar patch", action, ...features, "ok");
-    } else {
-      api.log.error("asar patch", action, ...features, "failed", result?.error);
-    }
-  } catch (e) {
-    api.log.error("asar patch invoke failed", e);
+// ───────────────────────────────────────────────────── CSS injection ──
+
+function applyReasoningStyle(state, style) {
+  // Remove any previous CSS injection
+  const prev = state.cssInjections.get("reasoning-style");
+  if (prev) { try { prev(); } catch(e) {} state.cssInjections.delete("reasoning-style"); }
+
+  const api = state.api;
+
+  if (style === "expanded") {
+    // Remove max-height from all reasoning item body containers
+    // The ASAR ships with max-h-35 overflow-y-auto by default (Scroll baseline).
+    // We inject a style that overrides it for Expanded mode.
+    const styleEl = document.createElement("style");
+    styleEl.id = "reasoning-fixes-expanded";
+    styleEl.textContent = `
+      [class*="vertical-scroll-fade-mask"] {
+        max-height: none !important;
+        overflow: visible !important;
+      }
+    `;
+    document.head.appendChild(styleEl);
+
+    state.cssInjections.set("reasoning-style", () => {
+      styleEl.remove();
+    });
+    api.log.info("reasoning style: expanded");
+  } else {
+    // Scroll mode — the ASAR baseline already has max-h-35.
+    // Just clean up any injected CSS (done above).
+    api.log.info("reasoning style: scroll (baseline)");
   }
 }
 
@@ -249,10 +258,7 @@ async function triggerAsarPatch(api, enable, features) {
 function activateFeature(state, id) {
   if (state.features.has(id)) return;
   const fn = FEATURES[id];
-  if (!fn) {
-    state.api.log.warn("unknown feature", id);
-    return;
-  }
+  if (!fn) { state.api.log.warn("unknown feature", id); return; }
   try {
     const dispose = fn(state.api);
     state.features.set(id, { dispose });
@@ -271,8 +277,6 @@ function deactivateFeature(state, id) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────── features ──
-
 const FEATURES = {
   "exploration-keep-open"(api) {
     const SEL = '[data-testid="exploration-accordion-body"]';
@@ -283,67 +287,46 @@ const FEATURES = {
       if (disposed) return;
       const domEl = document.querySelector(SEL);
       if (!domEl) {
-        if (retryCount < 20) {
-          retryCount++;
-          setTimeout(tryHook, 1000);
-        }
+        if (retryCount < 20) { retryCount++; setTimeout(tryHook, 1000); }
         return;
       }
       retryCount = 0;
 
       const allKeys = Object.keys(domEl);
-      const reactKeys = allKeys.filter(function(k) { return k.startsWith("__"); });
-
+      const reactKeys = allKeys.filter(k => k.startsWith("__"));
       let fiber = api.react.getFiber(domEl);
       if (!fiber) {
         for (const k of reactKeys) {
-          if (k.startsWith("__reactFiber$")) {
-            fiber = domEl[k];
-            if (fiber) break;
-          }
+          if (k.startsWith("__reactFiber$")) { fiber = domEl[k]; if (fiber) break; }
         }
-        if (!fiber) {
-          setTimeout(tryHook, 2000);
-          return;
-        }
+        if (!fiber) { setTimeout(tryHook, 2000); return; }
       }
 
       let depth = 0;
       while (fiber && depth < 20) {
         const hookVals = [];
         let h = fiber.memoizedState;
-        while (h) {
-          const v = h.memoizedState;
-          if (typeof v === "string") hookVals.push(v);
-          h = h.next;
-        }
-
+        while (h) { const v = h.memoizedState; if (typeof v === "string") hookVals.push(v); h = h.next; }
         for (const val of hookVals) {
           if (val === "preview" || val === "collapsed" || val === "expanded") {
             let hook = fiber.memoizedState;
             while (hook) {
               if (hook.memoizedState === val) {
-                if (val === "collapsed") {
-                  try { hook.queue.dispatch("preview"); } catch(e) {}
-                }
+                if (val === "collapsed") { try { hook.queue.dispatch("preview"); } catch(e) {} }
                 const orig = hook.queue.dispatch;
-                hook.queue.dispatch = (nv) => {
-                  if (nv === "collapsed") nv = "preview";
-                  orig(nv);
-                };
+                hook.queue.dispatch = (nv) => { if (nv === "collapsed") nv = "preview"; orig(nv); };
                 return;
               }
               hook = hook.next;
             }
           }
         }
-        fiber = fiber.return;
-        depth++;
+        fiber = fiber.return; depth++;
       }
     };
 
     setTimeout(tryHook, 500);
-    const iv = setInterval(function() {
+    const iv = setInterval(() => {
       if (disposed) { clearInterval(iv); return; }
       if (document.querySelector(SEL)) tryHook();
     }, 3000);
@@ -356,22 +339,13 @@ const FEATURES = {
 
 const REASONING_FIXES_IPC_KEY = "__reasoningFixesIpcHandler";
 function startMainHandler(api) {
-  if (globalThis[REASONING_FIXES_IPC_KEY]) {
-    api.log.info("[reasoning-fixes] main handler already registered, skipping");
-    return;
-  }
+  if (globalThis[REASONING_FIXES_IPC_KEY]) { api.log.info("[reasoning-fixes] main handler already registered"); return; }
   globalThis[REASONING_FIXES_IPC_KEY] = true;
   try {
-    if (typeof api.ipc?.handle !== "function") {
-      api.log.error("[reasoning-fixes] api.ipc.handle not available");
-      return;
-    }
+    if (typeof api.ipc?.handle !== "function") { api.log.error("[reasoning-fixes] api.ipc.handle not available"); return; }
     api.ipc.handle("reasoning-fixes:patch-asar", async (_event, { action, features }) => {
-      try {
-        return await handleAsarPatch(action, features);
-      } catch (e) {
-        return { ok: false, error: String(e) };
-      }
+      try { return await handleAsarPatch(action, features); }
+      catch (e) { return { ok: false, error: String(e) }; }
     });
     api.log.info("[reasoning-fixes] main handler ready");
   } catch (e) {
@@ -383,49 +357,32 @@ async function handleAsarPatch(action, features) {
   const path = require("node:path");
   const fs = require("node:fs");
   const { execSync } = require("node:child_process");
-
   const ASAR = "/Applications/Codex.app/Contents/Resources/app.asar";
   const PLIST = "/Applications/Codex.app/Contents/Info.plist";
   const SCRIPT = path.join(__dirname, "patch_codex_app_asar.py");
   const featureFlags = Array.isArray(features) && features.length ? features : ["all"];
 
   if (action === "apply") {
-    if (!fs.existsSync(SCRIPT)) {
-      return { ok: false, error: `patch script not found: ${SCRIPT}` };
-    }
-    try { execSync("which npx", { stdio: "ignore" }); }
-    catch { return { ok: false, error: "npx not found on PATH" }; }
-
+    if (!fs.existsSync(SCRIPT)) return { ok: false, error: `patch script not found` };
+    try { execSync("which npx", { stdio: "ignore" }); } catch { return { ok: false, error: "npx not found" }; }
     try {
       const flags = featureFlags.map(f => `--enable "${f}"`).join(" ");
-      execSync(`python3 "${SCRIPT}" --asar "${ASAR}" --info-plist "${PLIST}" ${flags}`, {
-        stdio: "pipe", timeout: 30_000,
-      });
-      try {
-        execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, {
-          stdio: "pipe", timeout: 15_000,
-        });
-      } catch {}
+      execSync(`python3 "${SCRIPT}" --asar "${ASAR}" --info-plist "${PLIST}" ${flags}`, { stdio: "pipe", timeout: 30_000 });
+      try { execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, { stdio: "pipe", timeout: 15_000 }); } catch {}
       return { ok: true };
-    } catch (e) {
-      return { ok: false, error: e.stderr?.toString() || e.stdout?.toString() || String(e) };
-    }
+    } catch (e) { return { ok: false, error: e.stderr?.toString() || e.stdout?.toString() || String(e) }; }
   }
 
   if (action === "revert") {
     const dir = path.dirname(ASAR);
     let backups;
-    try { backups = fs.readdirSync(dir).filter(f => f.startsWith("app.asar.bak.")); }
-    catch { return { ok: false, error: "cannot read backups dir" }; }
+    try { backups = fs.readdirSync(dir).filter(f => f.startsWith("app.asar.bak.")); } catch { return { ok: false, error: "cannot read backups" }; }
     if (!backups.length) return { ok: false, error: "no backup found" };
     backups.sort().reverse();
     try {
       fs.copyFileSync(path.join(dir, backups[0]), ASAR);
       const pb = fs.readdirSync(dir).filter(f => f.startsWith("Info.plist.bak."));
-      if (pb.length) {
-        pb.sort().reverse();
-        fs.copyFileSync(path.join(dir, pb[0]), PLIST);
-      }
+      if (pb.length) { pb.sort().reverse(); fs.copyFileSync(path.join(dir, pb[0]), PLIST); }
       try { execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, { stdio: "pipe", timeout: 15_000 }); } catch {}
       return { ok: true };
     } catch (e) { return { ok: false, error: String(e) }; }
@@ -439,37 +396,29 @@ function readFlag(api, id, fallback) {
   const v = api.storage.get(`feature:${id}`, undefined);
   return typeof v === "boolean" ? v : !!fallback;
 }
+function writeFlag(api, id, on) { api.storage.set(`feature:${id}`, !!on); }
 
-function writeFlag(api, id, on) {
-  api.storage.set(`feature:${id}`, !!on);
+function readStyle(api, id, fallback) {
+  const v = api.storage.get(`style:${id}`, undefined);
+  return typeof v === "string" ? v : fallback;
 }
+function writeStyle(api, id, val) { api.storage.set(`style:${id}`, val); }
 
-function el(tag, className) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  return node;
-}
-
+function el(tag, c) { const n = document.createElement(tag); if (c) n.className = c; return n; }
 function sectionTitle(text) {
-  const row = el("div", "flex h-toolbar items-center justify-between gap-2 px-0 py-0");
+  const r = el("div", "flex h-toolbar items-center justify-between gap-2 px-0 py-0");
   const inner = el("div", "flex min-w-0 flex-1 flex-col gap-1");
   const t = el("div", "text-base font-medium text-token-text-primary");
-  t.textContent = text;
-  inner.appendChild(t);
-  row.appendChild(inner);
-  return row;
+  t.textContent = text; inner.appendChild(t); r.appendChild(inner); return r;
 }
-
 function roundedCard() {
-  const card = el("div", "border-token-border flex flex-col divide-y-[0.5px] divide-token-border rounded-lg border");
-  card.style.backgroundColor = "var(--color-background-panel, var(--color-token-bg-fog))";
-  return card;
+  const c = el("div", "border-token-border flex flex-col divide-y-[0.5px] divide-token-border rounded-lg border");
+  c.style.backgroundColor = "var(--color-background-panel, var(--color-token-bg-fog))";
+  return c;
 }
-
 function switchControl(initial, onChange) {
   const btn = document.createElement("button");
-  btn.type = "button";
-  btn.setAttribute("role", "switch");
+  btn.type = "button"; btn.setAttribute("role", "switch");
   const pill = document.createElement("span");
   const knob = document.createElement("span");
   knob.className = "rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out h-4 w-4";
@@ -488,8 +437,7 @@ function switchControl(initial, onChange) {
   btn.addEventListener("click", async (e) => {
     e.preventDefault(); e.stopPropagation();
     const next = btn.getAttribute("aria-checked") !== "true";
-    apply(next);
-    btn.disabled = true;
+    apply(next); btn.disabled = true;
     try { await onChange?.(next); } finally { btn.disabled = false; }
   });
   return btn;
