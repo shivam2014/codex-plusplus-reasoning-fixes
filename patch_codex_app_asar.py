@@ -114,6 +114,10 @@ PATCHES = {
         patched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(!0\\),p=!o'),
         replacement=r'[d,f]=(0,Z.useState)(!0),p=!o'),
     # 5. Remove max-height scroll constraint on reasoning body
+    "reasoning-no-blink": PatchRule(name="reasoning_no_blink_during_stream",
+        unpatched=re.compile(r'g=o\?\!\!h:d'),
+        patched=re.compile(r'g=o\?\!0:d'),
+        replacement=r'g=o?!0:d'),
     "reasoning-full-expand": PatchRule(name="reasoning_full_expand_no_scroll",
         unpatched=re.compile(r'`vertical-scroll-fade-mask max-h-35 overflow-y-auto \[--edge-fade-distance:1rem\]`'),
         patched=re.compile(r'`\[--edge-fade-distance:1rem\]`'),
