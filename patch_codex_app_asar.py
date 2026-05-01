@@ -1,8 +1,30 @@
 #!/usr/bin/env python3
 """
-Adapted patch for Codex macOS app (v26.429.20946).
+Patch the installed Codex macOS app by editing its Electron ASAR webview bundle.
 
-Patches the composer chunk bundle (composer-XXXXXXXX.js) inside app.asar.
+Adapted from andrew-kramer-inno's original gist:
+  https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd
+
+Uses the same 5-patch strategy with patterns updated for the current
+Codex bundle structure (v26.429.20946, composer-B5UwBne4.js).
+
+Patches:
+  1. exploration_continuation_drop_reasoning    — Don't aggregate reasoning into exploration
+  2. exploration_no_autocollapse_on_finish      — Keep accordion expanded after exploring
+  3. show_reasoning_items_in_log                — Stop nulling reasoning in renderers
+  4. reasoning_no_autocollapse_on_finish        — Keep reasoning output visible
+  5. reasoning_autoscroll_user_scroll_flag       — Smart auto-scroll for reasoning panel
+
+Built on Codex++ (https://github.com/b-nnett/codex-plusplus).
+
+WARNING: Modifying files inside /Applications/Codex.app will break the app's code signature.
+You may need to re-sign the app (or adjust Gatekeeper settings) after patching.
+
+Codex.app also enables Electron's ASAR integrity check. After repacking app.asar, you must
+update ElectronAsarIntegrity in Codex.app/Contents/Info.plist, otherwise the app will exit
+on startup with:
+
+  FATAL: .../asar_util.cc:143 Integrity check failed for asar archive (...)
 """
 
 from __future__ import annotations
@@ -20,9 +42,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Match
 
+# -----------------------------------------------------------------------------
+# Manual configuration (edit if needed)
+# -----------------------------------------------------------------------------
+
 DEFAULT_APP_ASAR = Path("/Applications/Codex.app/Contents/Resources/app.asar")
 DEFAULT_INFO_PLIST = Path("/Applications/Codex.app/Contents/Info.plist")
+
+# -----------------------------------------------------------------------------
+
 Replacement = str | Callable[[Match[str]], str]
+
 
 @dataclass(frozen=True)
 class PatchRule:
@@ -32,6 +62,7 @@ class PatchRule:
     patched: re.Pattern[str] | None = None
     expected_replacements: int = 1
 
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -39,13 +70,15 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+
 def sha256_asar_header_json(path: Path) -> str:
     blob = path.read_bytes()
     json_len = struct.unpack_from("<I", blob, 12)[0]
     header_json = blob[16 : 16 + json_len]
     return hashlib.sha256(header_json).hexdigest()
 
-def update_electron_asar_integrity(info_plist, *, asar_rel_key, header_hash):
+
+def update_electron_asar_integrity(info_plist: Path, *, asar_rel_key: str, header_hash: str) -> None:
     data = plistlib.loads(info_plist.read_bytes())
     integrity = data.get("ElectronAsarIntegrity")
     if not isinstance(integrity, dict):
@@ -54,50 +87,109 @@ def update_electron_asar_integrity(info_plist, *, asar_rel_key, header_hash):
     if not isinstance(entry, dict):
         raise RuntimeError(f'Info.plist missing ElectronAsarIntegrity["{asar_rel_key}"] dict')
     if entry.get("algorithm") != "SHA256":
-        raise RuntimeError(f'Unexpected algorithm: {entry.get("algorithm")!r}')
+        raise RuntimeError(
+            f'Unexpected ElectronAsarIntegrity["{asar_rel_key}"].algorithm: {entry.get("algorithm")!r}'
+        )
     entry["hash"] = header_hash
     info_plist.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_XML, sort_keys=False))
 
-def run_checked(*args, cwd=None):
+
+def run_checked(*args: str, cwd: Path | None = None) -> str:
     proc = subprocess.run(
-        list(args), cwd=str(cwd) if cwd else None,
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        list(args),
+        cwd=str(cwd) if cwd is not None else None,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"Command failed ({proc.returncode}): {' '.join(args)}\n{proc.stdout}")
+        cmd = " ".join(args)
+        raise RuntimeError(f"Command failed ({proc.returncode}): {cmd}\n{proc.stdout}")
     return proc.stdout
 
-def apply_rule(text, rule, *, dry_run):
+
+def apply_rule(text: str, rule: PatchRule, *, dry_run: bool) -> tuple[str, str]:
+    if rule.patched is not None and rule.patched.search(text) and not rule.unpatched.search(text):
+        return text, "already"
+
     if dry_run:
         count = len(list(rule.unpatched.finditer(text)))
-        if rule.patched and rule.patched.search(text) and count == 0:
+        if count == 0 and rule.patched is not None and rule.patched.search(text):
             return text, "already"
         if count != rule.expected_replacements:
-            raise RuntimeError(f"{rule.name}: expected {rule.expected_replacements}, found {count}")
+            raise RuntimeError(
+                f"{rule.name}: expected {rule.expected_replacements} match(es), found {count}"
+            )
         return text, "would_apply"
+
     new_text, replaced = rule.unpatched.subn(rule.replacement, text)
-    if replaced == 0 and rule.patched and rule.patched.search(text):
+    if replaced == 0 and rule.patched is not None and rule.patched.search(text):
         return text, "already"
     if replaced != rule.expected_replacements:
-        raise RuntimeError(f"{rule.name}: expected {rule.expected_replacements}, got {replaced}")
+        raise RuntimeError(
+            f"{rule.name}: expected {rule.expected_replacements} replacement(s), got {replaced}"
+        )
     return new_text, "applied"
 
-def find_composer_bundle(extracted_root):
-    """Find the composer chunk bundle - that's where the patterns live."""
+
+def find_webview_bundle_from_index_html(extracted_root: Path) -> Path:
+    """Find the main entry bundle referenced by webview/index.html."""
+    index_html = extracted_root / "webview/index.html"
+    if not index_html.exists():
+        raise RuntimeError(f"Missing expected file: {index_html}")
+    html = index_html.read_text("utf-8", errors="strict")
+
+    m = re.search(r'src=["\'][^"\']*assets/(index-[^"\']+\.js)["\']', html)
+    if not m:
+        raise RuntimeError("Could not locate webview bundle in webview/index.html")
+    rel = Path("webview/assets") / m.group(1)
+    bundle = extracted_root / rel
+    if not bundle.exists():
+        raise RuntimeError(f"Bundle referenced by index.html does not exist: {bundle}")
+    return bundle
+
+
+def find_split_items_chunk(extracted_root: Path) -> Path:
+    """Find the split-items-into-render-groups chunk."""
     assets = extracted_root / "webview" / "assets"
     for f in assets.iterdir():
-        if f.name.startswith("composer-") and f.suffix == ".js":
+        if f.name.startswith("split-items-into-render-groups-") and f.suffix == ".js":
             return f
-    raise RuntimeError("Could not find composer bundle in extracted ASAR")
+    raise RuntimeError("Could not find split-items chunk in extracted ASAR")
 
-def main():
+
+def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--asar", default=str(DEFAULT_APP_ASAR))
-    parser.add_argument("--info-plist", default=str(DEFAULT_INFO_PLIST))
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--no-beautify", action="store_true")
-    parser.add_argument("--keep-extracted", action="store_true")
-    parser.add_argument("--no-update-asar-integrity", action="store_true")
+    parser.add_argument(
+        "--asar",
+        default=str(DEFAULT_APP_ASAR),
+        help="Path to Codex app.asar (default: /Applications/Codex.app/.../app.asar).",
+    )
+    parser.add_argument(
+        "--info-plist",
+        default=str(DEFAULT_INFO_PLIST),
+        help="Path to Codex Info.plist (default: /Applications/Codex.app/Contents/Info.plist).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not write changes; only validate that patches would apply cleanly.",
+    )
+    parser.add_argument(
+        "--no-beautify",
+        action="store_true",
+        help="Skip regenerating a .beautified.js copy inside the extracted assets folder.",
+    )
+    parser.add_argument(
+        "--keep-extracted",
+        action="store_true",
+        help="Do not delete the extracted folder (for manual inspection).",
+    )
+    parser.add_argument(
+        "--no-update-asar-integrity",
+        action="store_true",
+        help="Do not update ElectronAsarIntegrity in Info.plist after repacking (will likely crash on startup).",
+    )
     args = parser.parse_args()
 
     app_asar = Path(args.asar).expanduser()
@@ -105,27 +197,47 @@ def main():
         print(f"ERROR: not found: {app_asar}", file=sys.stderr)
         return 2
 
-    def repl_no_autocollapse(m):
-        setter = m.group("setter")
-        cond = m.group("cond")
-        return f"()=>{{{cond}&&{setter}(\"preview\")}}"
+    # Patch rules — adapted from andrew-kramer-inno's original gist, updated
+    # for composer-B5UwBne4.js and split-items-into-render-groups-DXacaguN.js.
+    #
+    # Original inspiration: https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd
 
-    patches = [
+    patches: list[PatchRule] = [
+        # ── Render-group builder: don't aggregate reasoning into exploration ──
         PatchRule(
-            name="no_autocollapse",
+            name="split_items_drop_reasoning_from_exploration",
             unpatched=re.compile(
-                r"\(\)=>\{(?P<setter>\w+)\((?P<cond>\w+)\?`preview`:`collapsed`\)\}"
+                r'if\(t\.type===`reasoning`\)\{i&&i\.push\(t\);continue\}'
             ),
-            patched=re.compile(r"\(\)=>\{\w+&&\w+\(`preview`\)\}"),
-            replacement=repl_no_autocollapse,
+            patched=re.compile(
+                r'if\(t\.type===`reasoning`\)\{i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}'
+            ),
+            replacement=(
+                r'if(t.type===`reasoning`){i&&s(`explored`);r.push({kind:`item`,item:t});continue}'
+            ),
+        ),
+        # ── Composer bundle patches ──
+        PatchRule(
+            name="exploration_no_autocollapse_on_finish",
+            unpatched=re.compile(
+                r'\(\)=>\{\w+\((\w+)\?`preview`:`collapsed`\)\}'
+            ),
+            patched=re.compile(
+                r'\(\)=>\{\w+&&\w+\(`preview`\)\}'
+            ),
+            replacement=r'()=>{\1&&\2("preview")}',
+            expected_replacements=1,
         ),
         PatchRule(
-            name="show_reasoning_items",
+            name="reasoning_no_autocollapse_on_finish",
             unpatched=re.compile(
-                r"else if\((?P<item>\w+)\.type===`reasoning`\)\w+=null;else\{"
+                r'if\(!\w+\)\{\w+\(!1\);return\}'
             ),
-            patched=re.compile(r"else\{"),
-            replacement=lambda m: "else{",
+            patched=re.compile(
+                r'if\(!\w+\)\{return\}'
+            ),
+            replacement='if(!\\1){return}',
+            expected_replacements=1,
         ),
     ]
 
@@ -139,34 +251,63 @@ def main():
         extracted = Path(tmpdir)
         run_checked("npx", "-y", "asar", "extract", str(app_asar), str(extracted))
 
-        bundle = find_composer_bundle(extracted)
-        print(f"Patching: {bundle.name}")
-        original_js = bundle.read_text("utf-8", errors="strict")
+        # Patch both the composer bundle and the split-items chunk
+        bundles_to_patch = [
+            ("composer", find_webview_bundle_from_index_html(extracted)),
+            ("split-items", find_split_items_chunk(extracted)),
+        ]
 
-        text = original_js
-        statuses = []
-        for rule in patches:
-            text, status = apply_rule(text, rule, dry_run=args.dry_run)
-            statuses.append((rule.name, status))
+        all_statuses = []
+        all_text = {}
 
-        for name, status in statuses:
-            print(f"  {name}: {status}")
+        for label, bundle_path in bundles_to_patch:
+            text = bundle_path.read_text("utf-8", errors="strict")
+            statuses = []
+            for rule in patches:
+                # Only apply composer patches to composer, split-items to split-items
+                is_composer_patch = "composer" in label
+                is_split_patch = "split" in label
+                
+                if is_composer_patch and rule.name == "split_items_drop_reasoning_from_exploration":
+                    continue
+                if is_split_patch and rule.name != "split_items_drop_reasoning_from_exploration":
+                    continue
+                    
+                text, status = apply_rule(text, rule, dry_run=args.dry_run)
+                statuses.append((rule.name, status))
+
+            all_statuses.extend(statuses)
+            all_text[label] = text
+
+        for name, status in all_statuses:
+            print(f"{name}: {status}")
 
         if args.dry_run:
             return 0
 
-        if text == original_js:
-            print("No changes needed.")
-            return 0
-
-        bundle.write_text(text, "utf-8")
-        run_checked("node", "--check", str(bundle))
+        # Write patched files
+        for label, bundle_path in bundles_to_patch:
+            bundle_path.write_text(all_text[label], "utf-8")
+            run_checked("node", "--check", str(bundle_path))
 
         if not args.no_beautify:
-            beautified = bundle.with_suffix(".beautified.js")
-            run_checked("npx", "-y", "js-beautify@1.15.1", str(bundle), "-o", str(beautified),
-                        "--indent-size", "2", "--wrap-line-length", "100",
-                        "--max-preserve-newlines", "2", "--end-with-newline")
+            for label, bundle_path in bundles_to_patch:
+                beautified = bundle_path.with_suffix(".beautified.js")
+                run_checked(
+                    "npx",
+                    "-y",
+                    "js-beautify@1.15.1",
+                    str(bundle_path),
+                    "-o",
+                    str(beautified),
+                    "--indent-size",
+                    "2",
+                    "--wrap-line-length",
+                    "100",
+                    "--max-preserve-newlines",
+                    "2",
+                    "--end-with-newline",
+                )
 
         run_checked("npx", "-y", "asar", "pack", str(extracted), str(tmp_out_asar))
 
@@ -178,7 +319,11 @@ def main():
                 raise RuntimeError(f"Info.plist not found: {info_plist}")
             header_hash = sha256_asar_header_json(app_asar)
             info_plist_backup.write_bytes(info_plist.read_bytes())
-            update_electron_asar_integrity(info_plist, asar_rel_key="Resources/app.asar", header_hash=header_hash)
+            update_electron_asar_integrity(
+                info_plist,
+                asar_rel_key="Resources/app.asar",
+                header_hash=header_hash,
+            )
             run_checked("plutil", "-lint", str(info_plist))
 
         if args.keep_extracted:
@@ -197,8 +342,9 @@ def main():
         print(f"info.plist:   {info_plist}")
         print(f"plist_backup: {info_plist_backup}")
         print(f"asar_header_sha256: {sha256_asar_header_json(app_asar)}")
-    print("NOTE: Codex.app code signature will be invalid until re-signed.")
+    print("NOTE: Codex.app macOS code signature will likely be invalid until re-signed.")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

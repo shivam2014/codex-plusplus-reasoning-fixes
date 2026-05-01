@@ -1,29 +1,38 @@
 /**
  * Reasoning & Exploration Fixes
  *
- * Toggleable fixes for Codex's exploration accordion and reasoning display.
+ * A Codex++ tweak (https://github.com/b-nnett/codex-plusplus) that improves
+ * Codex Desktop's conversation UI.
  *
  * Features
  * --------
  *  • prevent-collapse   Keep the exploration accordion expanded after it
  *                       finishes exploring — no more auto-collapsing.
+ *                       Uses React fiber introspection via the codex++ API.
  *  • show-reasoning     Show "Thinking…" / "Thought for Xs" items in the
- *                       message log instead of hiding them. Requires ASAR
- *                       patching (main process) since the hiding happens at
- *                       the React render level.
+ *                       message log instead of hiding them inside the
+ *                       exploration accordion. Requires ASAR patching.
+ *  • reasoning-no-autocollapse  Keep reasoning output visible after thinking
+ *                               completes.
  *
  * Architecture
  * ------------
- *   prevent-collapse is pure DOM — a MutationObserver watches the
- *   exploration accordion and forces it to stay open.
+ *   prevent-collapse walks React's fiber tree from the exploration accordion
+ *   DOM element upward, finds the useState hook controlling panel state, and
+ *   wraps dispatch to intercept "collapsed" → rewrite to "preview".
  *
- *   show-reasoning patches the app.asar on disk (main process) by running
- *   the same regex transformations the standalone script uses, then
- *   updates the ElectronAsarIntegrity hash. On disable it restores the
- *   backup. This survives Codex updates until the bundle structure changes.
+ *   show-reasoning patches the app.asar on disk (main process) by modifying
+ *   split-items-into-render-groups to flush the exploration buffer before
+ *   reasoning items, allowing them to render as standalone turn items via
+ *   the YM reasoning component.
  *
- *   Both features have a settings page with live toggles in Codex++'s
- *   Tweaks group.
+ * Acknowledgments
+ * --------------
+ *  • codex++ runtime & API: https://github.com/b-nnett/codex-plusplus
+ *  • Original ASAR patch inspiration: andrew-kramer-inno's gist
+ *    https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd
+ *
+ * License: MIT
  */
 
 /** @type {import("@codex-plusplus/sdk").Tweak} */
@@ -199,17 +208,17 @@ const FEATURES = {
       }
       retryCount = 0;
       
-      // Log ALL properties that start with __ for debugging
+      // Log all React-internal properties for debugging
       const allKeys = Object.keys(domEl);
       const reactKeys = allKeys.filter(function(k) { return k.startsWith("__"); });
       api.log.info("domEl __props: " + (reactKeys.length > 0 ? reactKeys.join(", ") : "NONE"));
       
-      // Try getFiber
+      // Try the codex++ getFiber API first
       let fiber = api.react.getFiber(domEl);
       if (fiber) {
         api.log.info("FIBER OK: type=" + (fiber.type?.name || typeof fiber.type) + " tag=" + fiber.tag);
       } else {
-        // Manual fallback
+        // Fallback: read the __reactFiber$ property directly from the DOM node
         for (const k of reactKeys) {
           if (k.startsWith("__reactFiber$")) {
             const f = domEl[k];
@@ -227,10 +236,10 @@ const FEATURES = {
         }
       }
       
-      // Walk fibers looking for collapse hook
+      // Walk fiber ancestors looking for the useState hook that controls
+      // exploration panel state (values: "preview", "collapsed", "expanded")
       let depth = 0;
       while (fiber && depth < 20) {
-        const props = fiber.memoizedProps || {};
         const typeName = fiber.type?.name || fiber.type?.displayName || (typeof fiber.type === "string" ? fiber.type : "?");
         const hookVals = [];
         let h = fiber.memoizedState;
@@ -244,7 +253,7 @@ const FEATURES = {
           api.log.info("fib[" + depth + "] " + typeName + " hooks=" + hookVals.join(","));
         }
         
-        // Check for our target hook
+        // Check for our target hook — the one with "preview"/"collapsed"/"expanded"
         for (const val of hookVals) {
           if (val === "preview" || val === "collapsed" || val === "expanded") {
             let hook = fiber.memoizedState;
@@ -271,9 +280,9 @@ const FEATURES = {
       api.log.info("walk end at depth " + depth);
     };
 
-    // Run with delay to let React render first
+    // Initial attempt with delay
     setTimeout(tryHook, 500);
-    // Also retry periodically in case element appears later
+    // Periodic retry in case element appears later (dynamic rendering)
     const iv = setInterval(function() {
       if (disposed) { clearInterval(iv); return; }
       const el = document.querySelector(SEL);
@@ -288,7 +297,7 @@ const FEATURES = {
 
 const REASONING_FIXES_IPC_KEY = "__reasoningFixesIpcHandler";
 function startMainHandler(api) {
-  // Check if already registered FIRST (before calling handle())
+  // Guard: check before attempting to register
   if (globalThis[REASONING_FIXES_IPC_KEY]) {
     api.log.info("[reasoning-fixes] main handler already registered, skipping");
     return;
@@ -325,26 +334,22 @@ async function handleAsarPatch(action) {
     if (!fs.existsSync(SCRIPT)) {
       return { ok: false, error: `patch script not found: ${SCRIPT}` };
     }
-
-    // Ensure npx is available
     try {
       execSync("which npx", { stdio: "ignore" });
     } catch {
       return { ok: false, error: "npx not found on PATH" };
     }
-
     try {
       execSync(`python3 "${SCRIPT}" --asar "${ASAR}" --info-plist "${PLIST}"`, {
         stdio: "pipe",
         timeout: 30_000,
       });
-      // Re-sign ad-hoc
       try {
         execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, {
           stdio: "pipe",
           timeout: 15_000,
         });
-      } catch { /* not critical */ }
+      } catch { /* ad-hoc signing is best-effort */ }
       return { ok: true };
     } catch (e) {
       const msg = e.stderr?.toString() || e.stdout?.toString() || String(e);
@@ -353,7 +358,6 @@ async function handleAsarPatch(action) {
   }
 
   if (action === "revert") {
-    // Find the most recent backup
     const dir = path.dirname(ASAR);
     let backups;
     try {
@@ -369,7 +373,6 @@ async function handleAsarPatch(action) {
 
     try {
       fs.copyFileSync(bakPath, ASAR);
-      // Also find and restore Info.plist backup
       const plistBaks = fs
         .readdirSync(dir)
         .filter((f) => f.startsWith("Info.plist.bak."));
@@ -377,7 +380,6 @@ async function handleAsarPatch(action) {
         plistBaks.sort().reverse();
         fs.copyFileSync(path.join(dir, plistBaks[0]), PLIST);
       }
-      // Re-sign
       try {
         execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, {
           stdio: "pipe",
