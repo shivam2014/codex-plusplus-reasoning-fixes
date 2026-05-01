@@ -74,3 +74,11 @@ co.shivam94.reasoning-fixes/
 ├── index.js               # Main tweak source (codex++ format)
 └── patch_codex_app_asar.py  # Standalone ASAR patching script
 ```
+
+## reasoning-full-expand
+
+Removes the `max-h-35 overflow-y-auto` constraint on the reasoning content
+container so the full reasoning text is visible without scrolling inside each
+item. Toggle in settings → the ASAR patch replaces the CSS class
+`vertical-scroll-fade-mask max-h-35 overflow-y-auto [--edge-fade-distance:1rem]`
+with just `[--edge-fade-distance:1rem]`.

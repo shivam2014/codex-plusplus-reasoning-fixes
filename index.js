@@ -6,14 +6,16 @@
  *
  * Features
  * --------
- *  • prevent-collapse   Keep the exploration accordion expanded after it
- *                       finishes exploring — no more auto-collapsing.
- *                       Uses React fiber introspection via the codex++ API.
- *  • show-reasoning     Show "Thinking…" / "Thought for Xs" items in the
- *                       message log instead of hiding them inside the
- *                       exploration accordion. Requires ASAR patching.
- *  • reasoning-no-autocollapse  Keep reasoning output visible after thinking
- *                               completes.
+ *  • prevent-collapse         Keep the exploration accordion expanded after it
+ *                             finishes exploring.
+ *  • show-reasoning           Show "Thinking…" / "Thought for Xs" items in the
+ *                             message log instead of hiding them inside the
+ *                             exploration accordion.
+ *  • reasoning-start-expanded Make reasoning items start expanded so you can
+ *                             read them without clicking each one.
+ *  • reasoning-full-expand    Remove the max-height scroll constraint on
+ *                             expanded reasoning content — the full text is
+ *                             visible without scrolling.
  *
  * Architecture
  * ------------
@@ -21,10 +23,8 @@
  *   DOM element upward, finds the useState hook controlling panel state, and
  *   wraps dispatch to intercept "collapsed" → rewrite to "preview".
  *
- *   show-reasoning patches the app.asar on disk (main process) by modifying
- *   split-items-into-render-groups to flush the exploration buffer before
- *   reasoning items, allowing them to render as standalone turn items via
- *   the YM reasoning component.
+ *   All other features modify the app.asar on disk using patch_codex_app_asar.py.
+ *   The main-process IPC handler runs the script and updates ElectronAsarIntegrity.
  *
  * Acknowledgments
  * --------------
@@ -55,6 +55,8 @@ module.exports = {
       defaults: {
         "prevent-collapse": true,
         "show-reasoning": true,
+        "reasoning-start-expanded": true,
+        "reasoning-full-expand": false,
       },
     };
     this._state = state;
@@ -106,7 +108,19 @@ function renderSettings(root, state) {
       id: "show-reasoning",
       title: "Show reasoning items in chat",
       description:
-        'Show "Thinking…" / "Thought for Xs" entries in the conversation log. Applies a patch to the Codex app bundle. Restart required.',
+        'Show "Thinking…" / "Thought for Xs" entries in the conversation log. Applies an ASAR patch. Restart required.',
+    },
+    {
+      id: "reasoning-start-expanded",
+      title: "Reasoning starts expanded",
+      description:
+        "Reasoning items open expanded by default so you can read them without clicking each one. Applies an ASAR patch. Restart required.",
+    },
+    {
+      id: "reasoning-full-expand",
+      title: "Full reasoning without scrolling",
+      description:
+        "Remove the max-height scroll constraint on reasoning content — the entire reasoning text is visible without scrolling inside each item. Applies an ASAR patch. Restart required.",
     },
   ];
 
@@ -135,19 +149,18 @@ function featureRow(state, f) {
   }
   row.appendChild(left);
 
-  const needsAsar = f.id === "show-reasoning";
+  const needsAsar = f.id !== "prevent-collapse";
   const initial = readFlag(state.api, f.id, state.defaults[f.id]);
   const sw = switchControl(initial, async (next) => {
     writeFlag(state.api, f.id, next);
     if (needsAsar) {
-      // show-reasoning requires ASAR patching — delegate to main process
       try {
         const action = next ? "apply" : "revert";
-        const result = await state.api.ipc.invoke("reasoning-fixes:patch-asar", { action });
+        const result = await state.api.ipc.invoke("reasoning-fixes:patch-asar", { action, features: [f.id] });
         if (result?.ok) {
-          state.api.log.info("asar patch", action, "ok");
+          state.api.log.info("asar patch", action, f.id, "ok");
         } else {
-          state.api.log.error("asar patch", action, "failed", result?.error);
+          state.api.log.error("asar patch", action, f.id, "failed", result?.error);
         }
       } catch (e) {
         state.api.log.error("asar patch invoke failed", e);
@@ -207,12 +220,12 @@ const FEATURES = {
         return;
       }
       retryCount = 0;
-      
+
       // Log all React-internal properties for debugging
       const allKeys = Object.keys(domEl);
       const reactKeys = allKeys.filter(function(k) { return k.startsWith("__"); });
       api.log.info("domEl __props: " + (reactKeys.length > 0 ? reactKeys.join(", ") : "NONE"));
-      
+
       // Try the codex++ getFiber API first
       let fiber = api.react.getFiber(domEl);
       if (fiber) {
@@ -235,7 +248,7 @@ const FEATURES = {
           return;
         }
       }
-      
+
       // Walk fiber ancestors looking for the useState hook that controls
       // exploration panel state (values: "preview", "collapsed", "expanded")
       let depth = 0;
@@ -243,16 +256,16 @@ const FEATURES = {
         const typeName = fiber.type?.name || fiber.type?.displayName || (typeof fiber.type === "string" ? fiber.type : "?");
         const hookVals = [];
         let h = fiber.memoizedState;
-        while (h) { 
+        while (h) {
           const v = h.memoizedState;
           if (typeof v === "string") hookVals.push(v);
-          h = h.next; 
+          h = h.next;
         }
-        
+
         if (hookVals.length > 0) {
           api.log.info("fib[" + depth + "] " + typeName + " hooks=" + hookVals.join(","));
         }
-        
+
         // Check for our target hook — the one with "preview"/"collapsed"/"expanded"
         for (const val of hookVals) {
           if (val === "preview" || val === "collapsed" || val === "expanded") {
@@ -297,7 +310,6 @@ const FEATURES = {
 
 const REASONING_FIXES_IPC_KEY = "__reasoningFixesIpcHandler";
 function startMainHandler(api) {
-  // Guard: check before attempting to register
   if (globalThis[REASONING_FIXES_IPC_KEY]) {
     api.log.info("[reasoning-fixes] main handler already registered, skipping");
     return;
@@ -308,9 +320,9 @@ function startMainHandler(api) {
       api.log.error("[reasoning-fixes] api.ipc.handle not available");
       return;
     }
-    api.ipc.handle("reasoning-fixes:patch-asar", async (_event, { action }) => {
+    api.ipc.handle("reasoning-fixes:patch-asar", async (_event, { action, features }) => {
       try {
-        return await handleAsarPatch(action);
+        return await handleAsarPatch(action, features);
       } catch (e) {
         return { ok: false, error: String(e) };
       }
@@ -321,7 +333,7 @@ function startMainHandler(api) {
   }
 }
 
-async function handleAsarPatch(action) {
+async function handleAsarPatch(action, features) {
   const path = require("node:path");
   const fs = require("node:fs");
   const { execSync } = require("node:child_process");
@@ -329,6 +341,9 @@ async function handleAsarPatch(action) {
   const ASAR = "/Applications/Codex.app/Contents/Resources/app.asar";
   const PLIST = "/Applications/Codex.app/Contents/Info.plist";
   const SCRIPT = path.join(__dirname, "patch_codex_app_asar.py");
+
+  // Build feature flags for the patch script
+  const featureFlags = Array.isArray(features) ? features : ["all"];
 
   if (action === "apply") {
     if (!fs.existsSync(SCRIPT)) {
@@ -340,7 +355,8 @@ async function handleAsarPatch(action) {
       return { ok: false, error: "npx not found on PATH" };
     }
     try {
-      execSync(`python3 "${SCRIPT}" --asar "${ASAR}" --info-plist "${PLIST}"`, {
+      const flags = featureFlags.map(f => `--enable "${f}"`).join(" ");
+      execSync(`python3 "${SCRIPT}" --asar "${ASAR}" --info-plist "${PLIST}" ${flags}`, {
         stdio: "pipe",
         timeout: 30_000,
       });
@@ -370,12 +386,9 @@ async function handleAsarPatch(action) {
     }
     backups.sort().reverse();
     const bakPath = path.join(dir, backups[0]);
-
     try {
       fs.copyFileSync(bakPath, ASAR);
-      const plistBaks = fs
-        .readdirSync(dir)
-        .filter((f) => f.startsWith("Info.plist.bak."));
+      const plistBaks = fs.readdirSync(dir).filter((f) => f.startsWith("Info.plist.bak."));
       if (plistBaks.length > 0) {
         plistBaks.sort().reverse();
         fs.copyFileSync(path.join(dir, plistBaks[0]), PLIST);

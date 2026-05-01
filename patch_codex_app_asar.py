@@ -14,6 +14,10 @@ Patches:
      — Keep reasoning output visible after thinking completes
   4. reasoning_start_expanded
      — Change useState(o) to useState(!0) so reasoning items start expanded
+  5. reasoning_full_expand
+     — Remove max-h-35 overflow-y-auto so full text is visible without scrolling
+
+Use --enable <feature> to apply only specific patches, or omit for all.
 
 Built on Codex++ (https://github.com/b-nnett/codex-plusplus).
 """
@@ -77,8 +81,8 @@ def apply_rule(text, rule, *, dry_run):
     return new_text, "applied"
 
 def find_webview_bundle(extracted_root):
-    index_html = extracted_root / "webview/index.html"
-    html = index_html.read_text("utf-8", errors="strict")
+    idx = extracted_root / "webview/index.html"
+    html = idx.read_text("utf-8", errors="strict")
     m = re.search(r'src=["\'][^"\']*assets/(index-[^"\']+\.js)["\']', html)
     if not m: raise RuntimeError("Could not locate webview bundle")
     return extracted_root / "webview/assets" / m.group(1)
@@ -88,36 +92,59 @@ def find_split_items_chunk(extracted_root):
         if f.name.startswith("split-items-into-render-groups-") and f.suffix == ".js": return f
     raise RuntimeError("Could not find split-items chunk")
 
+PATCHES = {
+    # 1. Render-group builder: don't aggregate reasoning into exploration
+    "show-reasoning": PatchRule(name="split_items_drop_reasoning_from_exploration",
+        unpatched=re.compile(r'if\(t\.type===`reasoning`\)\{i&&i\.push\(t\);continue\}'),
+        patched=re.compile(r'if\(t\.type===`reasoning`\)\{i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}'),
+        replacement=r'if(t.type===`reasoning`){i&&s(`explored`);r.push({kind:`item`,item:t});continue}'),
+    # 2. Don't collapse exploration accordion when done
+    "prevent-collapse": PatchRule(name="exploration_no_autocollapse_on_finish",
+        unpatched=re.compile(r'\(\)=>\{\w+\((\w+)\?`preview`:`collapsed`\)\}'),
+        patched=re.compile(r'\(\)=>\{\w+&&\w+\(`preview`\)\}'),
+        replacement=r'()=>{\1&&\2("preview")}'),
+    # 3. Don't collapse reasoning output when thinking completes
+    "reasoning-start-expanded": PatchRule(name="reasoning_no_autocollapse_on_finish",
+        unpatched=re.compile(r'if\(!\w+\)\{\w+\(!1\);return\}'),
+        patched=re.compile(r'if\(!\w+\)\{return\}'),
+        replacement=r'if(!\1){return}'),
+    # 4. Reasoning items start expanded (useState(!0) instead of useState(o))
+    "reasoning-start-expanded": PatchRule(name="reasoning_start_expanded_useState",
+        unpatched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(o\),p=!o'),
+        patched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(!0\\),p=!o'),
+        replacement=r'[d,f]=(0,Z.useState)(!0),p=!o'),
+    # 5. Remove max-height scroll constraint on reasoning body
+    "reasoning-full-expand": PatchRule(name="reasoning_full_expand_no_scroll",
+        unpatched=re.compile(r'`vertical-scroll-fade-mask max-h-35 overflow-y-auto \[--edge-fade-distance:1rem\]`'),
+        patched=re.compile(r'`\[--edge-fade-distance:1rem\]`'),
+        replacement=r'`[--edge-fade-distance:1rem]`'),
+}
+
+# Map feature names to which bundles they patch
+FEATURE_BUNDLES = {
+    "show-reasoning": "split-items",
+    "prevent-collapse": "composer",
+    "reasoning-start-expanded": "composer",
+    "reasoning-full-expand": "composer",
+}
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--asar", default=str(DEFAULT_APP_ASAR))
     parser.add_argument("--info-plist", default=str(DEFAULT_INFO_PLIST))
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--enable", action="append", default=[],
+                        help="Enable specific feature (can repeat). If omitted, all apply.")
     parser.add_argument("--no-beautify", action="store_true")
     parser.add_argument("--keep-extracted", action="store_true")
     parser.add_argument("--no-update-asar-integrity", action="store_true")
     args = parser.parse_args()
     app_asar = Path(args.asar).expanduser()
-    if not app_asar.exists(): print(f"ERROR: not found: {app_asar}", file=sys.stderr); return 2
+    if not app_asar.exists():
+        print(f"ERROR: not found: {app_asar}", file=sys.stderr); return 2
 
-    patches = [
-        PatchRule(name="split_items_drop_reasoning_from_exploration",
-            unpatched=re.compile(r'if\(t\.type===`reasoning`\)\{i&&i\.push\(t\);continue\}'),
-            patched=re.compile(r'if\(t\.type===`reasoning`\)\{i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}'),
-            replacement=r'if(t.type===`reasoning`){i&&s(`explored`);r.push({kind:`item`,item:t});continue}'),
-        PatchRule(name="exploration_no_autocollapse_on_finish",
-            unpatched=re.compile(r'\(\)=>\{\w+\((\w+)\?`preview`:`collapsed`\)\}'),
-            patched=re.compile(r'\(\)=>\{\w+&&\w+\(`preview`\)\}'),
-            replacement=r'()=>{\1&&\2("preview")}'),
-        PatchRule(name="reasoning_no_autocollapse_on_finish",
-            unpatched=re.compile(r'if\(!\w+\)\{\w+\(!1\);return\}'),
-            patched=re.compile(r'if\(!\w+\)\{return\}'),
-            replacement=r'if(!\1){return}'),
-        PatchRule(name="reasoning_start_expanded",
-            unpatched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(o\),p=!o'),
-            patched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(!0\\),p=!o'),
-            replacement=r'[d,f]=(0,Z.useState)(!0),p=!o'),
-    ]
+    # Determine which features to apply
+    features_to_apply = args.enable if args.enable else list(PATCHES.keys())
 
     ts = dt.datetime.now(dt.UTC).strftime("%Y%m%dT%H%M%SZ")
     backup_asar = app_asar.with_suffix(app_asar.suffix + f".bak.{ts}")
@@ -127,33 +154,35 @@ def main():
     with tempfile.TemporaryDirectory(prefix="codex_app_asar_extract_") as tmpdir:
         extracted = Path(tmpdir)
         run_checked("npx", "-y", "asar", "extract", str(app_asar), str(extracted))
-        
-        bundles = [
-            ("composer", find_webview_bundle(extracted)),
-            ("split-items", find_split_items_chunk(extracted)),
-        ]
-        
+
+        bundles = {
+            "composer": find_webview_bundle(extracted),
+            "split-items": find_split_items_chunk(extracted),
+        }
+
         all_statuses = []
-        all_text = {}
-        for label, bp in bundles:
-            text = bp.read_text("utf-8", errors="strict")
-            statuses = []
-            for rule in patches:
-                is_comp = "composer" in label
-                is_split = "split" in label
-                if is_split and rule.name != "split_items_drop_reasoning_from_exploration": continue
-                if is_comp and rule.name == "split_items_drop_reasoning_from_exploration": continue
-                text, status = apply_rule(text, rule, dry_run=args.dry_run)
-                statuses.append((rule.name, status))
-            all_statuses.extend(statuses)
-            all_text[label] = text
+        bundle_texts = {k: v.read_text("utf-8", errors="strict") for k, v in bundles.items()}
 
-        for name, status in all_statuses: print(f"{name}: {status}")
-        if args.dry_run: return 0
+        for feat_name in features_to_apply:
+            rule = PATCHES.get(feat_name)
+            if not rule:
+                print(f"⚠️  unknown feature: {feat_name}")
+                continue
+            bundle_key = FEATURE_BUNDLES.get(feat_name, "composer")
+            text = bundle_texts[bundle_key]
+            text, status = apply_rule(text, rule, dry_run=args.dry_run)
+            bundle_texts[bundle_key] = text
+            all_statuses.append((feat_name, status))
 
-        for label, bp in bundles:
-            bp.write_text(all_text[label], "utf-8")
-            run_checked("node", "--check", str(bp))
+        for name, status in all_statuses:
+            print(f"{name}: {status}")
+
+        if args.dry_run:
+            return 0
+
+        for key, text in bundle_texts.items():
+            bundles[key].write_text(text, "utf-8")
+            run_checked("node", "--check", str(bundles[key]))
 
         run_checked("npx", "-y", "asar", "pack", str(extracted), str(tmp_out))
         backup_asar.write_bytes(app_asar.read_bytes())
@@ -170,7 +199,7 @@ def main():
 
     print("PATCHED")
     print(f"asar: {app_asar}")
-    print(f"backup: {backup_asar}")
+    print(f"backup: {backup_asar.name}")
     print(f"sha256(new): {sha256_file(app_asar)[:16]}...")
     if not args.no_update_asar_integrity:
         print(f"asar_header_sha256: {sha256_asar_header_json(app_asar)[:16]}...")
