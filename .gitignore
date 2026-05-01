@@ -1,0 +1,4 @@
+node_modules/
+*.asar
+Codex.app
+source/

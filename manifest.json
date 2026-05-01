@@ -1,0 +1,18 @@
+{
+  "id": "co.shivam94.reasoning-fixes",
+  "name": "Reasoning & Exploration Fixes",
+  "version": "0.1.0",
+  "description": "Keep exploration panels open and show reasoning items in the message log.",
+  "author": {
+    "name": "shivam94",
+    "url": "https://github.com/anomalyco/codex-plusplus"
+  },
+  "tags": [
+    "ui",
+    "reasoning",
+    "exploration"
+  ],
+  "scope": "both",
+  "main": "index.js",
+  "githubRepo": "shivam94/codex-plusplus-reasoning-fixes"
+}
