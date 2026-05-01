@@ -1,16 +1,30 @@
 # Reasoning & Exploration Fixes
 
 A [Codex++](https://github.com/b-nnett/codex-plusplus) tweak that improves the
-conversation UI in Codex Desktop by fixing two issues with the exploration
-accordion and reasoning item display.
+conversation UI in Codex Desktop.
 
-## Features
+## Settings
 
-| Feature | Mechanism | Description |
+The tweak adds a settings page with three sections:
+
+### Exploration
+
+| Option | Default | Effect |
 |---|---|---|
-| **prevent-collapse** | React fiber hook (codex++ API) | Keeps the exploration accordion expanded after Codex finishes exploring files — no more auto-collapsing to zero height. |
-| **show-reasoning** | ASAR binary patch | Prevents "Thinking…" / "Thought for Xs" items from being silently hidden inside the exploration accordion. Reasoning items now render as standalone turn items with the proper `YM` reasoning component. |
-| **reasoning-no-autocollapse** | ASAR binary patch | Stops the reasoning output panel from collapsing when thinking completes — the content stays visible. |
+| **Keep accordion open** | ON | Exploration panel stays expanded after Codex finishes searching and reading files. Uses React fiber hook — no restart needed. |
+
+### Reasoning
+
+| Option | Default | Effect |
+|---|---|---|
+| **Show in conversation** | ON | Thinking steps and reasoning items appear in the conversation log. When off, they're hidden inside the exploration accordion. Requires ASAR patch. |
+| **Content display** | Scroll | **Scroll**: reasoning text fits in a compact box with vertical scrolling. **Expanded**: no height limit, full text visible without scrolling. Requires ASAR patch. |
+
+### Tool Outputs
+
+| Option | Default | Effect |
+|---|---|---|
+| **Show in conversation** | OFF | Tool call outputs (command results, file contents, search results) stay visible after execution instead of collapsing. Requires ASAR patch. |
 
 ## How it works
 
@@ -24,61 +38,47 @@ to `"preview"`.
 
 ### show-reasoning (ASAR patch)
 
-The original Codex bundle groups turn items into "render groups" via the
-`split-items-into-render-groups` chunk. Reasoning items were being pushed
-into the exploration buffer alongside `exec` commands. Inside the exploration
-accordion, the sub-item renderer (`AO` function) filters out all non-`exec`
-items with `if (e.type !== 'exec') return null;` — so reasoning silently
-disappeared.
+The render-group builder in `split-items-into-render-groups` was pushing
+reasoning items into the exploration buffer. Inside the exploration
+accordion, the sub-item renderer (`AO`) filters out all non-`exec` items.
+The patch makes reasoning items flush the exploration buffer and render as
+standalone turn items instead — where the existing `YM` reasoning component
+renders them properly.
 
-The patch changes the render-group builder (`at()` function) so that
-reasoning items flush the exploration buffer first and render as standalone
-turn items instead. The turn-level renderer already has a `case 'reasoning': <YM>`
-handler (imported from `reasoning-minimal-*.js`), so reasoning now renders
-properly.
+### reasoning-full-expand (ASAR patch)
+
+Removes the `max-h-35 overflow-y-auto` CSS constraint on the reasoning
+content container so the full text is visible without internal scrolling.
+
+### show-tool-outputs (ASAR patch)
+
+Shell command outputs (inside `fj` component) start expanded so results
+are visible without manual expansion.
 
 ## Installation
-
-```bash
-# Clone into Codex++ tweaks directory
-git clone https://github.com/shivam2014/codex-plusplus-reasoning-fixes.git \
-  ~/Library/Application\ Support/codex-plusplus/tweaks/co.shivam94.reasoning-fixes
-
-# Then enable features from Settings → Codex Plus Plus → Tweaks
-```
-
-Or use the codex++ CLI:
 
 ```bash
 codexplusplus tweaks install co.shivam94.reasoning-fixes
 ```
 
-For the ASAR-patched features (`show-reasoning`, `reasoning-no-autocollapse`),
-toggle them in the settings page — the tweak applies the patches via its
-main-process IPC handler and re-signs the app.
-
-## Acknowledgments
-
-- **Codex++** ([b-nnett/codex-plusplus](https://github.com/b-nnett/codex-plusplus)) —
-  The tweak runtime and React fiber introspection API that makes the
-  prevent-collapse feature possible.
-- **Original patch** ([andrew-kramer-inno's gist](https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd)) —
-  The inspiration for the ASAR patching approach and the 5-patch strategy
-  that this project builds on and adapts to the current Codex bundle structure.
+Or clone directly:
+```bash
+git clone https://github.com/shivam2014/codex-plusplus-reasoning-fixes.git \
+  ~/Library/Application\ Support/codex-plusplus/tweaks/co.shivam94.reasoning-fixes
+```
 
 ## Files
 
 ```
 co.shivam94.reasoning-fixes/
-├── manifest.json          # Codex++ tweak manifest
-├── index.js               # Main tweak source (codex++ format)
-└── patch_codex_app_asar.py  # Standalone ASAR patching script
+├── manifest.json              # Codex++ tweak manifest
+├── index.js                   # Tweak source with settings UI
+└── patch_codex_app_asar.py    # ASAR patching script
 ```
 
-## reasoning-full-expand
+## Acknowledgments
 
-Removes the `max-h-35 overflow-y-auto` constraint on the reasoning content
-container so the full reasoning text is visible without scrolling inside each
-item. Toggle in settings → the ASAR patch replaces the CSS class
-`vertical-scroll-fade-mask max-h-35 overflow-y-auto [--edge-fade-distance:1rem]`
-with just `[--edge-fade-distance:1rem]`.
+- **Codex++** ([b-nnett/codex-plusplus](https://github.com/b-nnett/codex-plusplus)) —
+  Tweak runtime and React fiber introspection API.
+- **Original patch** ([andrew-kramer-inno's gist](https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd)) —
+  Inspiration for the ASAR patching approach.
