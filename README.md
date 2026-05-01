@@ -82,3 +82,13 @@ co.shivam94.reasoning-fixes/
   Tweak runtime and React fiber introspection API.
 - **Original patch** ([andrew-kramer-inno's gist](https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd)) —
   Inspiration for the ASAR patching approach.
+
+### Keep agent body expanded
+
+Prevents the agent items section (containing reasoning, tool calls, and exploration)
+from auto-collapsing after the assistant response starts streaming. By default, Codex
+collapses this section once the assistant begins responding — your reasoning and
+tool outputs end up hidden behind a "N items" badge below the answer.
+
+This patch keeps the agent body always expanded so reasoning stays visible above
+the assistant response, where you'd expect to see it.

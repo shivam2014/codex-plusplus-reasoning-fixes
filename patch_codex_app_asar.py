@@ -119,6 +119,11 @@ PATCHES = {
         patched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(!0\\),p=!o'),
         replacement=r'[d,f]=(0,Z.useState)(!0),p=!o'),
     # 5. Remove max-height scroll constraint on reasoning body
+    "keep-agent-expanded": PatchRule(name="keep_agent_body_expanded",
+        unpatched=re.compile(r'at=it\?\$e:\!1'),
+        patched=re.compile(r'at=\!1'),
+        replacement=r'at=!1',
+        expected_replacements=1),
     "disable-shimmer": PatchRule(name="disable_thinking_shimmer",
         unpatched=re.compile(r'!\(\w+===void 0\|\|\1\)'),
         patched=re.compile(r'true'),
@@ -141,6 +146,7 @@ FEATURE_BUNDLES = {
     "reasoning-start-expanded": "composer",
     "reasoning-full-expand": "composer",
     "disable-shimmer": "shimmer",
+    "keep-agent-expanded": "composer",
 }
 
 def main():
