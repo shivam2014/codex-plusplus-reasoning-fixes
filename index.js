@@ -49,6 +49,7 @@ module.exports = {
         "reasoning-style": "expanded",  // "expanded" or "scroll"
         "show-file-edits": true,
         "show-tool-outputs": false,
+        "collapse-all-toggle": true,
         "disable-streaming-pulse": true,
       },
     };
@@ -67,6 +68,11 @@ module.exports = {
           "</svg>",
         render: (root) => renderSettings(root, state),
       });
+    }
+
+    // Floating collapse/expand all button
+    if (readFlag(state.api, "collapse-all-toggle", true)) {
+      setupCollapseAllButton(state);
     }
 
     // Activate live features
@@ -95,6 +101,7 @@ module.exports = {
     }
     s.cssInjections.clear();
     s.sourceStatusSubscribers?.clear();
+    if (s._collapseCleanup) { try { s._collapseCleanup(); } catch(e) {} }
     settingsPageHandle?.unregister();
     settingsPageHandle = null;
     rendererState = null;
@@ -182,6 +189,18 @@ function renderSettings(root, state) {
   }));
   tlSection.appendChild(tlCard);
   container.appendChild(tlSection);
+
+  const caSection = el("section", "flex flex-col gap-2");
+  caSection.appendChild(sectionTitle("Collapse All"));
+  const caCard = roundedCard();
+  caCard.appendChild(featureRow(state, {
+    id: "collapse-all-toggle",
+    label: "Show collapse/expand button",
+    desc: "Adds a floating button to collapse or expand all reasoning items and tool calls at once.",
+    source: false,
+  }));
+  caSection.appendChild(caCard);
+  container.appendChild(caSection);
 
   root.appendChild(container);
 }
@@ -447,7 +466,7 @@ const FEATURES = {
               if (hook.memoizedState === val) {
                 if (val === "collapsed") { try { hook.queue.dispatch("preview"); } catch(e) {} }
                 const orig = hook.queue.dispatch;
-                hook.queue.dispatch = (nv) => { if (nv === "collapsed") nv = "preview"; orig(nv); };
+                hook.queue.dispatch = (nv) => { if (nv === "collapsed" && !window.__reasoningFixesForceOverride) nv = "preview"; orig(nv); };
                 return;
               }
               hook = hook.next;
@@ -467,6 +486,62 @@ const FEATURES = {
     return () => { disposed = true; };
   },
 };
+
+// ──────────────────────────────────────────────── collapse-all button ──
+
+function setupCollapseAllButton(state) {
+  const api = state.api;
+  let collapsed = false;
+  let btn = null;
+  let styleEl = null;
+
+  function addStyle() {
+    if (document.getElementById("rft-css")) return;
+    styleEl = document.createElement("style");
+    styleEl.id = "rft-css";
+    styleEl.textContent = "#rft-btn{position:fixed;bottom:24px;right:24px;z-index:9999;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);background:#1e1e1e;color:#ccc;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);opacity:0.5;transition:opacity 0.2s,transform 0.2s}#rft-btn:hover{opacity:1;transform:scale(1.05)}#rft-btn svg{width:20px;height:20px}body.rft-hide-all [data-testid=exploration-accordion-body]{max-height:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}body.rft-hide-all [class*=cursor-interaction]+[style*=opacity]{max-height:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}";
+    document.head.appendChild(styleEl);
+  }
+
+  function makeBtn() {
+    addStyle();
+    btn = document.createElement("button");
+    btn.id = "rft-btn";
+    setIcon();
+    btn.onclick = toggleAll;
+    document.body.appendChild(btn);
+  }
+
+  function setIcon() {
+    if (!btn) return;
+    if (collapsed) {
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-6"/><path d="M12 8V2"/><path d="M4 12H2"/><path d="M10 12H8"/><path d="M16 12h-2"/><path d="M22 12h-2"/><path d="m15 19-3 3-3-3"/><path d="m15 5-3-3-3 3"/></svg>';
+      btn.title = "Expand all";
+    } else {
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-6"/><path d="M12 8V2"/><path d="M4 12H2"/><path d="M10 12H8"/><path d="M16 12h-2"/><path d="M22 12h-2"/><path d="m9 19 3-3 3 3"/><path d="m9 5 3 3 3-3"/></svg>';
+      btn.title = "Collapse all";
+    }
+  }
+
+  function toggleAll() {
+    collapsed = !collapsed;
+    document.body.classList.toggle("rft-hide-all", collapsed);
+    setIcon();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", makeBtn);
+  } else {
+    setTimeout(makeBtn, 1500);
+  }
+
+  // Cleanup for stop()
+  rendererState._collapseCleanup = function() {
+    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+    var s = document.getElementById("rft-css");
+    if (s && s.parentNode) s.parentNode.removeChild(s);
+  };
+}
 
 // ─────────────────────────────────────────────────────── main process ──
 
