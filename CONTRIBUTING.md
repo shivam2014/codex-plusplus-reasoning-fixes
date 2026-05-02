@@ -101,19 +101,99 @@ cp index.js ~/Library/Application\ Support/codex-plusplus/tweaks/co.shivam94.rea
 pkill -x "Codex" && sleep 2 && open /Applications/Codex.app
 ```
 
-### 7. If it doesn't work, investigate the real source
+### 7. Test via CDP before deploying to the tweaks directory
 
-The extracted ASAR chunk might differ from what Codex serves at runtime.
-Add a logging line to `patchSource()` in `source-patcher.js` to confirm
-the regex matched. If not, the served chunk has a different hash/pattern.
+Before asking the user to restart Codex, test changes on the running app:
 
-### 8. When there's a tradeoff between two fixes
+```bash
+# Open Codex with debug port
+osascript -e 'quit app "Codex"' && sleep 2 && \
+  open -a Codex --args --remote-debugging-port=9222
+
+# Connect with agent-browser
+npx agent-browser connect 9222
+
+# Evaluate JavaScript in the renderer context
+npx agent-browser eval 'document.querySelectorAll("[data-testid=...]").length'
+
+# Or inject a test button/UI to preview changes before committing
+npx agent-browser eval '(function() { /* test code */ })()'
+```
+
+This catches issues before they reach the tweaks directory.
+
+### 8. When a source patch crashes the main process
+
+The main process crashes on load when `source-patcher.js` has a syntax error.
+The most common cause: **bare double quotes inside a double-quoted string**
+in a `replacement` value:
+
+```javascript
+// BROKEN — kills Codex on startup
+replacement: "V=...pb-0`,"data-reasoning-item":"true",children:...}"
+
+// FIXED — escaped double quotes
+replacement: "V=...pb-0`,\"data-reasoning-item\":\"true\",children:...}"
+```
+
+In the JavaScript source file, when the `replacement` string is evaluated,
+`\"` produces `"` in the string VALUE, which is correct.
+
+Always test with `node -e 'require("./source-patcher.js"); console.log("OK")'`
+before deploying. A bad replacement string crashes the renderer.
+
+### 9. When there's a tradeoff between two fixes
 
 If removing one behavior reintroduces another (e.g. reordering fixes
 single-pair but breaks multi-pair), don't toggle on/off — find the
 **condition that distinguishes the two cases**. In v1.0 we used:
 "only reorder when the first item is an output" instead of "always reorder"
 or "never reorder".
+
+## Architecture decisions
+
+## Prefer CSS toggles over fiber dispatch for UI state
+
+CSS-based toggles (a class on `document.body` that triggers `max-height: 0`,
+`overflow: hidden`, `opacity: 0`) survive React re-renders, streaming updates,
+and component unmount/remount cycles. Fiber dispatch
+(`hook.queue.dispatch()`) changes React state temporarily, but gets overridden
+when components re-render.
+
+Use fiber dispatch only when React needs to actually process the state change
+(e.g., collapsing a reasoning item affects its children rendering).
+
+## Avoid source patches when DOM selectors work
+
+Reasoning item headers can be identified by DOM structure:
+`[class*="cursor-interaction"]` with a next sibling that has inline `opacity`
+from framer-motion. No source patch needed. Use existing `data-testid`
+attributes for exploration panels
+(`[data-testid="exploration-accordion-body"]`).
+
+Source patches are necessary when you need to add a new `data-*` attribute
+or modify React props that affect rendering behavior.
+
+## Settings toggle for every user-facing feature
+
+Every feature the user can see or interact with should have a toggle in the
+tweak settings. Pattern:
+
+1. Add to `state.defaults` in `start()`
+2. Add a `featureRow` in `renderSettings()`
+3. Guard feature initialization with `readFlag(state.api, "id", default)`
+
+## Lifecycle: cleanup in stop() for every injected feature
+
+Any DOM element, event listener, or interval added during `start()` must be
+removed in `stop()`. Store cleanup handles on `rendererState` (e.g.,
+`rendererState._myCleanup = function() { ... }`) and call them in `stop()`.
+
+## Icon selection for UI elements
+
+Use semantically clear icons:
+- **Collapse/expand**: `unfold-vertical` (arrows toward/away from center)
+- Avoid directional chevrons (chevrons-up/down look like scroll-to-top/bottom)
 
 ## Branch & Release
 
