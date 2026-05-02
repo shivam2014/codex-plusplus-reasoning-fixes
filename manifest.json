@@ -1,13 +1,20 @@
 {
   "id": "co.shivam94.reasoning-fixes",
   "name": "Reasoning & Exploration Fixes",
-  "version": "0.3.0",
-  "description": "Keep exploration panels open, show and fully expand reasoning items without scrolling. Built on Codex++ with inspiration from andrew-kramer-inno's ASAR patching approach.",
+  "version": "0.9.0",
+  "description": "Keep exploration panels open and show reasoning items in conversation. Uses Codex++ source patching \u2014 no ASAR modification needed.",
   "author": {
     "name": "shivam94",
     "url": "https://github.com/shivam2014/codex-plusplus-reasoning-fixes"
   },
-  "tags": ["ui", "reasoning", "exploration", "accessibility"],
+  "tags": [
+    "ui",
+    "reasoning",
+    "exploration",
+    "accessibility",
+    "in-memory",
+    "source-patch"
+  ],
   "scope": "both",
   "main": "index.js",
   "githubRepo": "shivam2014/codex-plusplus-reasoning-fixes",

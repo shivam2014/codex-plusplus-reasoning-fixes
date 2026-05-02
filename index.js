@@ -7,23 +7,37 @@
  * Features
  * --------
  *  • Exploration accordion stays open (fiber hook, live)
- *  • Reasoning items visible in conversation (ASAR patch)
+ *  • Reasoning items visible in conversation (source patch)
  *  • Reasoning display: scrollable or fully expanded (CSS injection, live)
- *  • Tool outputs stay visible (ASAR patch)
+ *
+ * Architecture
+ * ------------
+ *  Source-backed features use a Codex++ main-process source patcher that
+ *  wraps Electron's protocol.handle("app") to transform JS chunks in memory.
+ *  No ASAR extraction, repacking, or codesigning needed.
+ *
+ *  The exploration-keep-open feature walks React's fiber tree from the
+ *  exploration accordion DOM element upward to find the useState hook and
+ *  intercept "collapsed" dispatch → rewrite to "preview".
  *
  * Acknowledgments
  *  • codex++: https://github.com/b-nnett/codex-plusplus
- *  • Original ASAR patch inspiration:
+ *  • Original source-patch inspiration:
  *    https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd
  * License: MIT
  */
+
+const MAIN_STOP_KEY = "__reasoningFixesMainStop";
+const RENDERER_STATE_KEY = "__reasoningFixesRendererState";
+const SETTINGS_PAGE_KEY = "__reasoningFixesSettingsPage";
 
 /** @type {import("@codex-plusplus/sdk").Tweak} */
 module.exports = {
   start(api) {
     try {
       if (api.process === "main") {
-        startMainHandler(api);
+        const { startReasoningFixesMain } = require("./source-patcher.js");
+        globalThis[MAIN_STOP_KEY] = startReasoningFixesMain(api);
         return;
       }
     } catch (e) {
@@ -31,6 +45,7 @@ module.exports = {
       return;
     }
 
+    // ── renderer ──────────────────────────────────────────────────────
     const state = {
       api,
       features: new Map(),
@@ -38,17 +53,17 @@ module.exports = {
       defaults: {
         "exploration-keep-open": true,
         "show-reasoning": true,
-        "reasoning-style": "expanded",  // "expanded" or "scroll"
-        "show-tool-outputs": false,
+        "reasoning-style": "expanded",
       },
     };
-    this._state = state;
+    globalThis[RENDERER_STATE_KEY] = state;
 
+    // Register settings page
     if (typeof api.settings?.registerPage === "function") {
-      this._pageHandle = api.settings.registerPage({
+      globalThis[SETTINGS_PAGE_KEY] = api.settings.registerPage({
         id: "main",
         title: "Reasoning & Exploration Fixes",
-        description: "Improve how reasoning, exploration, and tool outputs display in the conversation.",
+        description: "Control how reasoning and exploration display in conversations.",
         iconSvg:
           '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="icon-sm inline-block align-middle">' +
           '<path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
@@ -58,17 +73,21 @@ module.exports = {
       });
     }
 
-    // Activate runtime features
-    this._state.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
-    applyReasoningStyle(state, this._state.reasoningStyle);
-
+    // Activate live features
     if (readFlag(state.api, "exploration-keep-open", true)) {
       activateFeature(state, "exploration-keep-open");
     }
+    applyReasoningStyle(state, readStyle(state.api, "reasoning-style", "expanded"));
   },
 
   stop() {
-    const s = this._state;
+    try {
+      const mainStop = globalThis[MAIN_STOP_KEY];
+      if (mainStop) { try { mainStop(); } catch (e) {} }
+    } catch (e) {}
+    globalThis[MAIN_STOP_KEY] = null;
+
+    const s = globalThis[RENDERER_STATE_KEY];
     if (!s) return;
     for (const [, f] of s.features) {
       try { f.dispose?.(); } catch (e) { s.api.log.warn("dispose failed", e); }
@@ -78,7 +97,13 @@ module.exports = {
       try { dispose?.(); } catch (e) {}
     }
     s.cssInjections.clear();
-    this._pageHandle?.unregister();
+
+    try {
+      const page = globalThis[SETTINGS_PAGE_KEY];
+      if (page) page.unregister();
+    } catch (e) {}
+    globalThis[SETTINGS_PAGE_KEY] = null;
+    globalThis[RENDERER_STATE_KEY] = null;
   },
 };
 
@@ -94,7 +119,7 @@ function renderSettings(root, state) {
   expCard.appendChild(featureRow(state, {
     id: "exploration-keep-open",
     label: "Keep accordion open",
-    desc: "Exploration panel stays expanded after Codex finishes searching and reading files. No restart needed.",
+    desc: "Exploration panel stays expanded after Codex finishes searching. No restart needed.",
   }));
   expSection.appendChild(expCard);
   container.appendChild(expSection);
@@ -107,14 +132,14 @@ function renderSettings(root, state) {
   rsnCard.appendChild(featureRow(state, {
     id: "show-reasoning",
     label: "Show in conversation",
-    desc: "Thinking steps and reasoning items appear in the message log. Requires ASAR patch + restart.",
-    asar: true,
+    desc: "Thinking steps and reasoning items appear in the message log.",
+    source: true,
   }));
 
   rsnCard.appendChild(styleChoiceRow(state, {
     id: "reasoning-style",
     label: "Content display",
-    desc: "How reasoning text fits inside each item.",
+    desc: "Expanded shows full text; Scroll uses a compact box.",
     choices: [
       { value: "expanded", label: "Expanded" },
       { value: "scroll", label: "Scroll" },
@@ -124,25 +149,12 @@ function renderSettings(root, state) {
   rsnSection.appendChild(rsnCard);
   container.appendChild(rsnSection);
 
-  // Section: Tool Outputs
-  const tlSection = el("section", "flex flex-col gap-2");
-  tlSection.appendChild(sectionTitle("Tool Outputs"));
-  const tlCard = roundedCard();
-  tlCard.appendChild(featureRow(state, {
-    id: "show-tool-outputs",
-    label: "Show in conversation",
-    desc: "Tool call outputs stay visible after execution instead of collapsing. Requires ASAR patch + restart.",
-    asar: true,
-  }));
-  tlSection.appendChild(tlCard);
-  container.appendChild(tlSection);
-
   root.appendChild(container);
 }
 
 function featureRow(state, f) {
   const row = el("div", "flex items-center justify-between gap-4 p-3");
-  const left = el("div", "flex min-w-0 flex-col gap-1");
+  const left = el("div", "flex min-w-0 flex-1 flex-col gap-1");
   const label = el("div", "min-w-0 text-sm text-token-text-primary");
   label.textContent = f.label;
   left.appendChild(label);
@@ -151,27 +163,35 @@ function featureRow(state, f) {
     desc.textContent = f.desc;
     left.appendChild(desc);
   }
+  if (f.source) {
+    const warn = sourceWarningLine();
+    left.appendChild(warn);
+    const update = () => updateSourceWarning(state, f.id, warn);
+    state.sourceStatusSubscribers ??= new Set();
+    state.sourceStatusSubscribers.add(update);
+    update();
+  }
   row.appendChild(left);
 
   const initial = readFlag(state.api, f.id, state.defaults[f.id] === true);
   const sw = switchControl(initial, async (next) => {
     writeFlag(state.api, f.id, next);
-    if (f.asar) {
-      try {
-        const action = next ? "apply" : "revert";
-        const result = await state.api.ipc.invoke("reasoning-fixes:patch-asar", { action, features: [f.id] });
-        if (result?.ok) state.api.log.info("asar patch", action, f.id, "ok");
-        else state.api.log.error("asar patch", f.id, "failed", result?.error);
-      } catch (e) {
-        state.api.log.error("asar patch invoke failed", e);
-      }
-    } else {
-      if (next) activateFeature(state, f.id);
-      else deactivateFeature(state, f.id);
-    }
+    state.api.log.info("feature toggle", f.id, next);
+    await setSourceFeature(state, f.id, next);
   });
   row.appendChild(sw);
   return row;
+}
+
+function sourceWarningLine() {
+  return el("div", "hidden rounded-md bg-token-editor-warning-background px-2 py-1 text-xs text-token-editor-warning-foreground");
+}
+
+function updateSourceWarning(state, id, line) {
+  const group = state.sourceStatus?.groups?.[id];
+  const msg = group?.status === "unsupported" || group?.status === "forced_active" ? group.message : "";
+  line.textContent = msg || "";
+  line.classList.toggle("hidden", !msg);
 }
 
 function styleChoiceRow(state, f) {
@@ -181,20 +201,16 @@ function styleChoiceRow(state, f) {
   const label = el("div", "text-sm text-token-text-primary");
   label.textContent = f.label;
   left.appendChild(label);
-  if (f.desc) {
-    const desc = el("div", "text-token-text-secondary min-w-0 text-sm");
-    desc.textContent = f.desc;
-    left.appendChild(desc);
-  }
+  const desc = el("div", "text-token-text-secondary min-w-0 text-sm");
+  desc.textContent = f.desc || "";
+  left.appendChild(desc);
   row.appendChild(left);
 
-  // Segmented control: Expanded | Scroll
   const current = readStyle(state.api, "reasoning-style", "expanded");
   const segGroup = el("div", "flex gap-1");
 
   for (const choice of f.choices) {
     const isSelected = current === choice.value;
-
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className =
@@ -203,16 +219,13 @@ function styleChoiceRow(state, f) {
         ? "bg-token-charts-blue text-white"
         : "bg-token-foreground/5 text-token-text-secondary hover:bg-token-foreground/10");
     btn.textContent = choice.label;
-
     btn.addEventListener("click", () => {
       const oldVal = readStyle(state.api, "reasoning-style", "expanded");
       if (choice.value === oldVal) return;
       writeStyle(state.api, "reasoning-style", choice.value);
       applyReasoningStyle(state, choice.value);
-      // Re-render this row to update the selection highlight
       row.replaceWith(styleChoiceRow(state, f));
     });
-
     segGroup.appendChild(btn);
   }
   row.appendChild(segGroup);
@@ -222,33 +235,26 @@ function styleChoiceRow(state, f) {
 // ───────────────────────────────────────────────────── CSS injection ──
 
 function applyReasoningStyle(state, style) {
-  // Remove any previous CSS injection
   const prev = state.cssInjections.get("reasoning-style");
   if (prev) { try { prev(); } catch(e) {} state.cssInjections.delete("reasoning-style"); }
 
-  const api = state.api;
-
   if (style === "expanded") {
-    // Expanded mode: the ASAR patch removed max-h-35 already.
-    // Just clean up any "scroll" CSS that might add constraints back.
-    api.log.info("reasoning style: expanded (ASAR baseline)");
+    // Expanded: no special CSS needed since the source patch already
+    // keeps the full text visible. Just clean up any scroll CSS.
+    state.api.log.info("reasoning style: expanded");
   } else {
-    // Scroll mode: the ASAR patch removed max-h-35 from the bundle,
-    // so we inject CSS to RE-ADD the scroll constraint at runtime.
+    // Scroll: re-add the scroll constraint that the source patch removed.
     const styleEl = document.createElement("style");
     styleEl.id = "reasoning-fixes-scroll";
     styleEl.textContent = [
       '[class="[--edge-fade-distance:1rem]"] {',
-      '  max-height: 140px !important;',
-      '  overflow-y: auto !important;',
-      '}',
+      "  max-height: 140px !important;",
+      "  overflow-y: auto !important;",
+      "}",
     ].join("\n");
     document.head.appendChild(styleEl);
-
-    state.cssInjections.set("reasoning-style", () => {
-      styleEl.remove();
-    });
-    api.log.info("reasoning style: scroll (CSS injected)");
+    state.cssInjections.set("reasoning-style", () => { styleEl.remove(); });
+    state.api.log.info("reasoning style: scroll");
   }
 }
 
@@ -280,33 +286,28 @@ const FEATURES = {
   "exploration-keep-open"(api) {
     const SEL = '[data-testid="exploration-accordion-body"]';
     let disposed = false;
-    let retryCount = 0;
 
     const tryHook = () => {
       if (disposed) return;
       const domEl = document.querySelector(SEL);
-      if (!domEl) {
-        if (retryCount < 20) { retryCount++; setTimeout(tryHook, 1000); }
-        return;
-      }
-      retryCount = 0;
+      if (!domEl) { setTimeout(tryHook, 1000); return; }
 
-      const allKeys = Object.keys(domEl);
-      const reactKeys = allKeys.filter(k => k.startsWith("__"));
       let fiber = api.react.getFiber(domEl);
       if (!fiber) {
-        for (const k of reactKeys) {
-          if (k.startsWith("__reactFiber$")) { fiber = domEl[k]; if (fiber) break; }
-        }
+        const fiberKey = Object.keys(domEl).find(k => k.startsWith("__reactFiber$"));
+        if (fiberKey) fiber = domEl[fiberKey];
         if (!fiber) { setTimeout(tryHook, 2000); return; }
       }
 
       let depth = 0;
       while (fiber && depth < 20) {
-        const hookVals = [];
+        const strHooks = [];
         let h = fiber.memoizedState;
-        while (h) { const v = h.memoizedState; if (typeof v === "string") hookVals.push(v); h = h.next; }
-        for (const val of hookVals) {
+        while (h) {
+          if (typeof h.memoizedState === "string") strHooks.push(h.memoizedState);
+          h = h.next;
+        }
+        for (const val of strHooks) {
           if (val === "preview" || val === "collapsed" || val === "expanded") {
             let hook = fiber.memoizedState;
             while (hook) {
@@ -320,7 +321,8 @@ const FEATURES = {
             }
           }
         }
-        fiber = fiber.return; depth++;
+        fiber = fiber.return;
+        depth++;
       }
     };
 
@@ -334,59 +336,35 @@ const FEATURES = {
   },
 };
 
-// ─────────────────────────────────────────────────────── main process ──
+// ───────────────────────────────────────────────────────── source IPC ──
 
-const REASONING_FIXES_IPC_KEY = "__reasoningFixesIpcHandler";
-function startMainHandler(api) {
-  if (globalThis[REASONING_FIXES_IPC_KEY]) { api.log.info("[reasoning-fixes] main handler already registered"); return; }
-  globalThis[REASONING_FIXES_IPC_KEY] = true;
+async function refreshSourceStatus(state) {
   try {
-    if (typeof api.ipc?.handle !== "function") { api.log.error("[reasoning-fixes] api.ipc.handle not available"); return; }
-    api.ipc.handle("reasoning-fixes:patch-asar", async (_event, { action, features }) => {
-      try { return await handleAsarPatch(action, features); }
-      catch (e) { return { ok: false, error: String(e) }; }
-    });
-    api.log.info("[reasoning-fixes] main handler ready");
+    const result = await state.api.ipc.invoke("source-patches-v1", { action: "status" });
+    state.sourceStatus = result;
+    if (result?.settings) syncSourceFlags(state, result.settings);
+    for (const cb of state.sourceStatusSubscribers || []) {
+      try { cb(); } catch (e) {}
+    }
   } catch (e) {
-    api.log.error("[reasoning-fixes] failed to register IPC handler: " + (e?.message || String(e)));
+    state.api.log.warn("source status refresh failed", e?.message || String(e));
   }
 }
 
-async function handleAsarPatch(action, features) {
-  const path = require("node:path");
-  const fs = require("node:fs");
-  const { execSync } = require("node:child_process");
-  const ASAR = "/Applications/Codex.app/Contents/Resources/app.asar";
-  const PLIST = "/Applications/Codex.app/Contents/Info.plist";
-  const SCRIPT = path.join(__dirname, "patch_codex_app_asar.py");
-  const featureFlags = Array.isArray(features) && features.length ? features : ["all"];
-
-  if (action === "apply") {
-    if (!fs.existsSync(SCRIPT)) return { ok: false, error: `patch script not found` };
-    try { execSync("which npx", { stdio: "ignore" }); } catch { return { ok: false, error: "npx not found" }; }
-    try {
-      const flags = featureFlags.map(f => `--enable "${f}"`).join(" ");
-      execSync(`python3 "${SCRIPT}" --asar "${ASAR}" --info-plist "${PLIST}" ${flags}`, { stdio: "pipe", timeout: 30_000 });
-      try { execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, { stdio: "pipe", timeout: 15_000 }); } catch {}
-      return { ok: true };
-    } catch (e) { return { ok: false, error: e.stderr?.toString() || e.stdout?.toString() || String(e) }; }
+async function setSourceFeature(state, id, value) {
+  try {
+    const result = await state.api.ipc.invoke("source-patches-v1", { action: "set-feature", id, value });
+    state.sourceStatus = result;
+    await refreshSourceStatus(state);
+  } catch (e) {
+    state.api.log.warn("source feature update failed", id, e?.message || String(e));
   }
+}
 
-  if (action === "revert") {
-    const dir = path.dirname(ASAR);
-    let backups;
-    try { backups = fs.readdirSync(dir).filter(f => f.startsWith("app.asar.bak.")); } catch { return { ok: false, error: "cannot read backups" }; }
-    if (!backups.length) return { ok: false, error: "no backup found" };
-    backups.sort().reverse();
-    try {
-      fs.copyFileSync(path.join(dir, backups[0]), ASAR);
-      const pb = fs.readdirSync(dir).filter(f => f.startsWith("Info.plist.bak."));
-      if (pb.length) { pb.sort().reverse(); fs.copyFileSync(path.join(dir, pb[0]), PLIST); }
-      try { execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, { stdio: "pipe", timeout: 15_000 }); } catch {}
-      return { ok: true };
-    } catch (e) { return { ok: false, error: String(e) }; }
+function syncSourceFlags(state, settings) {
+  for (const id of ["show-reasoning"]) {
+    if (typeof settings[id] === "boolean") writeFlag(state.api, id, settings[id]);
   }
-  return { ok: false, error: `unknown action: ${action}` };
 }
 
 // ─────────────────────────────────────────────────────────────── helpers ──
@@ -420,13 +398,21 @@ function switchControl(initial, onChange) {
   btn.type = "button"; btn.setAttribute("role", "switch");
   const pill = document.createElement("span");
   const knob = document.createElement("span");
-  knob.className = "rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out h-4 w-4";
+  knob.className =
+    "rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] " +
+    "shadow-sm transition-transform duration-200 ease-out h-4 w-4";
   pill.appendChild(knob);
   const apply = (on) => {
     btn.setAttribute("aria-checked", String(on));
     btn.dataset.state = on ? "checked" : "unchecked";
-    btn.className = "inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction";
-    pill.className = "relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out h-5 w-8 " + (on ? "bg-token-charts-blue" : "bg-token-foreground/20");
+    btn.className =
+      "inline-flex shrink-0 items-center text-sm focus-visible:outline-none " +
+      "focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full " +
+      "cursor-interaction";
+    pill.className =
+      "relative inline-flex shrink-0 items-center rounded-full transition-colors " +
+      "duration-200 ease-out h-5 w-8 " +
+      (on ? "bg-token-charts-blue" : "bg-token-foreground/20");
     pill.dataset.state = on ? "checked" : "unchecked";
     knob.dataset.state = on ? "checked" : "unchecked";
     knob.style.transform = on ? "translateX(14px)" : "translateX(2px)";

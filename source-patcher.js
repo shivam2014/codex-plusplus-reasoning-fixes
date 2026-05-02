@@ -1,0 +1,386 @@
+const STATE_KEY = "__reasoningFixesSourcePatcherV1";
+const IPC_KEY = "__reasoningFixesSourcePatcherIpcV1";
+const RELOAD_TOKEN_KEY = "__reasoningFixesSourceReloadTokenV1";
+
+const DEFAULTS = {
+  "show-reasoning": true,
+  "disable-shimmer": true,
+  "show-file-edits": true,
+  "show-tool-outputs": false,
+};
+
+const SETTING_FEATURES = {
+  "show-reasoning": [
+    "show-reasoning",
+    "render-standalone-reasoning",
+    "reasoning-no-autocollapse",
+    "reasoning-start-expanded",
+    "reasoning-no-blink",
+    "keep-agent-expanded",
+  ],
+  "disable-shimmer": ["disable-shimmer"],
+  "show-file-edits": ["file-edits-no-tool-group"],
+  "show-tool-outputs": ["keep-agent-expanded"],
+};
+
+const PATCHES = {
+  "show-reasoning": {
+    name: "split_items_drop_reasoning_from_exploration",
+    bundle: "split-items",
+    unpatched: /if\(t\.type===`reasoning`\)\{i&&i\.push\(t\);continue\}/,
+    patched: /if\(t\.type===`reasoning`\)\{i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}/,
+    replacement: "if(t.type===`reasoning`){i&&s(`explored`);r.push({kind:`item`,item:t});continue}",
+  },
+  "render-standalone-reasoning": {
+    name: "agent_item_render_reasoning_via_default_renderer",
+    bundle: "composer",
+    unpatched: /\}else if\(e\.type===`reasoning`\)k=null;else\{let n;t\[36\]!==a/,
+    patched: /\}else\{let n;t\[36\]!==a/,
+    replacement: "}else{let n;t[36]!==a",
+  },
+  "reasoning-no-autocollapse": {
+    name: "reasoning_no_autocollapse_on_finish",
+    bundle: "composer",
+    unpatched: /if\(!o\)\{S\(!1\);return\}/,
+    patched: /if\(!o\)\{return\}/,
+    replacement: "if(!o){return}",
+  },
+  "reasoning-start-expanded": {
+    name: "reasoning_start_expanded_useState",
+    bundle: "composer",
+    unpatched: /\[d,f\]=\(0,Z\.useState\)\(o\),p=!o/,
+    patched: /\[d,f\]=\(0,Z\.useState\)\(!0\),p=!o/,
+    replacement: "[d,f]=(0,Z.useState)(!0),p=!o",
+  },
+  "keep-agent-expanded": {
+    name: "keep_agent_body_expanded",
+    bundle: "composer",
+    unpatched: /at=it\?\$e:!1/,
+    patched: /at=!1/,
+    replacement: "at=!1",
+  },
+  "disable-shimmer": {
+    name: "disable_thinking_shimmer",
+    bundle: "shimmer",
+    unpatched: /!\((\w+)===void 0\|\|\1\)/,
+    patched: /,true\)\{/,
+    replacement: "true",
+  },
+  "reasoning-no-blink": {
+    name: "reasoning_no_blink_during_stream",
+    bundle: "composer",
+    unpatched: /g=o\?\!\!h:d/,
+    patched: /g=o\?\!0:d/,
+    replacement: "g=o?!0:d",
+  },
+  "file-edits-no-tool-group": {
+    name: "file_edits_not_collapsed_tool_activity",
+    bundle: "split-items",
+    // Keep patch as a recognized case; making it fall through triggers Codex's
+    // exhaustive unexpected-value throw and breaks conversation rendering.
+    unpatched: /e\.type===`exploration`\|\|e\.type===`patch`\|\|e\.type===`exec`/,
+    patched: /e\.type===`exploration`\?!0:e\.type===`patch`\?!1:e\.type===`exec`/,
+    replacement: "e.type===`exploration`?!0:e.type===`patch`?!1:e.type===`exec`",
+  },
+};
+
+function startReasoningFixesMain(api) {
+  const state = globalThis[STATE_KEY] || {
+    protocolPatched: false,
+    observations: Object.create(null),
+    patchedAssets: new Set(),
+  };
+  state.api = api;
+  state.enabled = true;
+  globalThis[STATE_KEY] = state;
+
+  installProtocolPatch(state);
+  installIpc(state);
+  api.log.info("[reasoning-fixes] source patcher ready");
+  return () => {
+    state.enabled = false;
+    if (state.reloadTimer) {
+      clearTimeout(state.reloadTimer);
+      state.reloadTimer = null;
+    }
+    api.log.info("[reasoning-fixes] source patcher disabled");
+  };
+}
+
+function installProtocolPatch(state) {
+  if (state.protocolPatched) return;
+  const { protocol } = require("electron");
+  const originalHandle = protocol.handle;
+
+  const reasoningFixesProtocolHandle = function reasoningFixesProtocolHandle(scheme, handler) {
+    if (scheme !== "app" || typeof handler !== "function") {
+      return originalHandle.apply(this, arguments);
+    }
+
+    const wrappedHandler = async (request) => {
+      const response = await handler(request);
+      const bundle = bundleForUrl(request?.url);
+      if (!bundle || !state.enabled) return response;
+
+      let originalText = null;
+      try {
+        originalText = await response.text();
+        const result = patchSource(state, request.url, originalText, bundle);
+        const headers = new Headers(response.headers);
+        headers.delete("content-length");
+        headers.set("content-type", "text/javascript; charset=utf-8");
+        return new Response(result.text, {
+          status: response.status,
+          statusText: response.statusText,
+          headers,
+        });
+      } catch (error) {
+        state.api.log.warn("[reasoning-fixes] failed to patch renderer asset", {
+          url: request?.url,
+          error: error?.stack || error?.message || String(error),
+        });
+        if (originalText != null) {
+          const headers = new Headers(response.headers);
+          headers.delete("content-length");
+          return new Response(originalText, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          });
+        }
+        return response;
+      }
+    };
+
+    return originalHandle.call(this, scheme, wrappedHandler);
+  };
+  protocol.handle = reasoningFixesProtocolHandle;
+
+  state.protocolPatched = true;
+  state.disposeProtocol = () => {
+    if (protocol.handle === reasoningFixesProtocolHandle) {
+      protocol.handle = originalHandle;
+    }
+    state.protocolPatched = false;
+  };
+}
+
+function installIpc(state) {
+  const shared = globalThis[IPC_KEY] || { registered: false };
+  shared.impl = (request) => handleIpc(state, request);
+  globalThis[IPC_KEY] = shared;
+  if (shared.registered) return;
+
+  state.api.ipc.handle("source-patches-v1", async (request) => {
+    try {
+      return await globalThis[IPC_KEY].impl(request);
+    } catch (error) {
+      return { ok: false, error: error?.message || String(error) };
+    }
+  });
+  shared.registered = true;
+}
+
+async function handleIpc(state, request) {
+  const action = request?.action || "status";
+  if (action === "status") return buildStatus(state);
+  if (action === "set-feature") {
+    const id = request?.id;
+    if (!Object.prototype.hasOwnProperty.call(DEFAULTS, id)) {
+      return { ok: false, error: `unknown feature: ${id}` };
+    }
+    state.api.storage.set(`feature:${id}`, !!request.value);
+    scheduleCodexWindowReload(state);
+    return buildStatus(state);
+  }
+  if (action === "sync-features") {
+    const values = request?.values || {};
+    for (const id of Object.keys(DEFAULTS)) {
+      if (typeof values[id] === "boolean") state.api.storage.set(`feature:${id}`, values[id]);
+    }
+    return buildStatus(state);
+  }
+  if (action === "reload-window") {
+    scheduleCodexWindowReload(state);
+    return buildStatus(state);
+  }
+  return { ok: false, error: `unknown action: ${action}` };
+}
+
+function patchSource(state, rawUrl, source, bundle) {
+  const settings = readSettings(state.api.storage);
+  const enabled = enabledLowLevelFeatures(settings);
+  const basename = basenameForUrl(rawUrl);
+  let text = source;
+  let changed = false;
+
+  for (const [feature, rule] of Object.entries(PATCHES)) {
+    if (rule.bundle !== bundle) continue;
+    const desired = enabled.has(feature);
+    const before = inspectRule(text, rule);
+
+    if (!desired) {
+      recordObservation(state, feature, rule, before === "already" ? "bundled_active" : before === "not_applied" ? "available" : before, bundle, basename);
+      continue;
+    }
+
+    if (before === "not_applied") {
+      const next = text.replace(rule.unpatched, rule.replacement);
+      if (next === text) {
+        recordObservation(state, feature, rule, "unsupported", bundle, basename);
+        continue;
+      }
+      text = next;
+      changed = true;
+      recordObservation(state, feature, rule, "active", bundle, basename);
+    } else if (before === "already") {
+      recordObservation(state, feature, rule, "active", bundle, basename);
+    } else {
+      recordObservation(state, feature, rule, "unsupported", bundle, basename);
+    }
+  }
+
+  if (changed && !state.patchedAssets.has(basename)) {
+    state.patchedAssets.add(basename);
+    state.api.log.info("[reasoning-fixes] patched renderer asset", { asset: basename, bundle });
+  }
+  return { text, changed };
+}
+
+function inspectRule(source, rule) {
+  const unpatchedCount = countMatches(source, rule.unpatched);
+  const patchedCount = countMatches(source, rule.patched);
+  if (unpatchedCount === 1 && patchedCount === 0) return "not_applied";
+  if (unpatchedCount === 0 && patchedCount >= 1) return "already";
+  if (unpatchedCount === 0 && patchedCount === 0) return "unsupported";
+  return "mixed";
+}
+
+function countMatches(source, re) {
+  const flags = re.flags.includes("g") ? re.flags : `${re.flags}g`;
+  const global = new RegExp(re.source, flags);
+  return Array.from(source.matchAll(global)).length;
+}
+
+function recordObservation(state, feature, rule, status, bundle, asset) {
+  state.observations[feature] = {
+    feature,
+    rule: rule.name,
+    status,
+    bundle,
+    asset,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+function buildStatus(state) {
+  const settings = readSettings(state.api.storage);
+  const groups = {};
+  for (const id of Object.keys(SETTING_FEATURES)) {
+    groups[id] = aggregateSettingStatus(id, settings[id], state.observations);
+  }
+  return {
+    ok: true,
+    settings,
+    groups,
+    features: Object.values(state.observations),
+    patchedAssets: Array.from(state.patchedAssets),
+    reloadNeeded: state.api.storage.get("source:reload-needed", false) === true,
+  };
+}
+
+function aggregateSettingStatus(id, enabled, observations) {
+  const features = SETTING_FEATURES[id];
+  const seen = features.map((feature) => observations[feature]).filter(Boolean);
+  if (!enabled) {
+    const bundled = seen.find((item) => item.status === "bundled_active");
+    return {
+      status: bundled ? "forced_active" : "disabled",
+      message: bundled
+        ? "Codex's served source already contains this change, so this toggle cannot disable it until Codex is restored or updated."
+        : "",
+      details: seen,
+    };
+  }
+  const unsupported = seen.find((item) => item.status === "unsupported" || item.status === "mixed");
+  if (unsupported) {
+    return {
+      status: "unsupported",
+      message: "This Codex version does not match the known source shape for this feature. The tweak likely needs an update.",
+      details: seen,
+    };
+  }
+  if (seen.length < features.length) {
+    return {
+      status: "unknown",
+      message: "Waiting for Codex to load the source chunk for this feature.",
+      details: seen,
+    };
+  }
+  return { status: "active", message: "", details: seen };
+}
+
+function readSettings(storage) {
+  const out = {};
+  for (const [id, fallback] of Object.entries(DEFAULTS)) {
+    const value = storage.get(`feature:${id}`, undefined);
+    out[id] = typeof value === "boolean" ? value : fallback;
+  }
+  return out;
+}
+
+function enabledLowLevelFeatures(settings) {
+  const enabled = new Set();
+  for (const [setting, features] of Object.entries(SETTING_FEATURES)) {
+    if (!settings[setting]) continue;
+    for (const feature of features) enabled.add(feature);
+  }
+  return enabled;
+}
+
+function bundleForUrl(rawUrl) {
+  const basename = basenameForUrl(rawUrl);
+  if (!basename) return null;
+  if (/^composer-[A-Za-z0-9_-]+\.js$/.test(basename)) return "composer";
+  if (/^split-items-into-render-groups-[A-Za-z0-9_-]+\.js$/.test(basename)) return "split-items";
+  if (/^thinking-shimmer-[A-Za-z0-9_-]+\.js$/.test(basename)) return "shimmer";
+  return null;
+}
+
+function basenameForUrl(rawUrl) {
+  if (typeof rawUrl !== "string") return null;
+  try {
+    const pathname = new URL(rawUrl).pathname;
+    return pathname.slice(pathname.lastIndexOf("/") + 1);
+  } catch {
+    return null;
+  }
+}
+
+function reloadCodexWindows(state) {
+  const { BrowserWindow } = require("electron");
+  const token = `${Date.now()}`;
+  if (globalThis[RELOAD_TOKEN_KEY] === token) return;
+  globalThis[RELOAD_TOKEN_KEY] = token;
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isDestroyed()) continue;
+    const url = window.webContents.getURL();
+    if (!url.startsWith("app://-/")) continue;
+    state.api.log.info("[reasoning-fixes] reloading Codex window for source patch settings");
+    window.webContents.reloadIgnoringCache();
+  }
+}
+
+function scheduleCodexWindowReload(state) {
+  state.api.storage.set("source:reload-needed", false);
+  if (state.reloadTimer) clearTimeout(state.reloadTimer);
+  state.reloadTimer = setTimeout(() => {
+    state.reloadTimer = null;
+    reloadCodexWindows(state);
+  }, 150);
+}
+
+module.exports = {
+  startReasoningFixesMain,
+};
