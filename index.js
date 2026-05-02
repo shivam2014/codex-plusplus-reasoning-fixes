@@ -7,23 +7,27 @@
  * Features
  * --------
  *  • Exploration accordion stays open (fiber hook, live)
- *  • Reasoning items visible in conversation (ASAR patch)
+ *  • Reasoning items visible in conversation (source patch)
  *  • Reasoning display: scrollable or fully expanded (CSS injection, live)
- *  • Tool outputs stay visible (ASAR patch)
+ *  • Tool outputs stay visible (source patch)
  *
  * Acknowledgments
  *  • codex++: https://github.com/b-nnett/codex-plusplus
- *  • Original ASAR patch inspiration:
+ *  • Original source-patch inspiration:
  *    https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd
  * License: MIT
  */
+
+let mainStop = null;
+let rendererState = null;
+let settingsPageHandle = null;
 
 /** @type {import("@codex-plusplus/sdk").Tweak} */
 module.exports = {
   start(api) {
     try {
       if (api.process === "main") {
-        startMainHandler(api);
+        mainStop = startMainHandler(api);
         return;
       }
     } catch (e) {
@@ -35,17 +39,21 @@ module.exports = {
       api,
       features: new Map(),
       cssInjections: new Map(),
+      sourceStatus: null,
+      sourceStatusSubscribers: new Set(),
       defaults: {
         "exploration-keep-open": true,
         "show-reasoning": true,
+        "disable-shimmer": true,
         "reasoning-style": "expanded",  // "expanded" or "scroll"
         "show-tool-outputs": false,
       },
     };
-    this._state = state;
+    rendererState = state;
+    syncSourceBackedSettings(state);
 
     if (typeof api.settings?.registerPage === "function") {
-      this._pageHandle = api.settings.registerPage({
+      settingsPageHandle = api.settings.registerPage({
         id: "main",
         title: "Reasoning & Exploration Fixes",
         description: "Improve how reasoning, exploration, and tool outputs display in the conversation.",
@@ -58,9 +66,10 @@ module.exports = {
       });
     }
 
-    // Activate runtime features
-    this._state.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
-    applyReasoningStyle(state, this._state.reasoningStyle);
+    // Activate live features
+    rendererState.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
+    applyReasoningStyle(state, rendererState.reasoningStyle);
+    applyDisableShimmerStyle(state, readFlag(state.api, "disable-shimmer", true));
 
     if (readFlag(state.api, "exploration-keep-open", true)) {
       activateFeature(state, "exploration-keep-open");
@@ -68,7 +77,11 @@ module.exports = {
   },
 
   stop() {
-    const s = this._state;
+    if (mainStop) {
+      try { mainStop(); } catch (e) {}
+      mainStop = null;
+    }
+    const s = rendererState;
     if (!s) return;
     for (const [, f] of s.features) {
       try { f.dispose?.(); } catch (e) { s.api.log.warn("dispose failed", e); }
@@ -78,7 +91,10 @@ module.exports = {
       try { dispose?.(); } catch (e) {}
     }
     s.cssInjections.clear();
-    this._pageHandle?.unregister();
+    s.sourceStatusSubscribers?.clear();
+    settingsPageHandle?.unregister();
+    settingsPageHandle = null;
+    rendererState = null;
   },
 };
 
@@ -99,40 +115,48 @@ function renderSettings(root, state) {
   expSection.appendChild(expCard);
   container.appendChild(expSection);
 
-  // Section: Reasoning
   const rsnSection = el("section", "flex flex-col gap-2");
   rsnSection.appendChild(sectionTitle("Reasoning"));
   const rsnCard = roundedCard();
 
-  rsnCard.appendChild(featureRow(state, {
+  const showReasoningGroup = el("div", "flex flex-col");
+  showReasoningGroup.appendChild(featureRow(state, {
     id: "show-reasoning",
-    label: "Show in conversation",
-    desc: "Thinking steps and reasoning items appear in the message log. Requires ASAR patch + restart.",
-    asar: true,
+    label: "Show reasoning",
+    desc: "Adds thinking and reasoning entries to the chat.",
+    source: true,
   }));
 
-  rsnCard.appendChild(styleChoiceRow(state, {
+  showReasoningGroup.appendChild(styleChoiceRow(state, {
     id: "reasoning-style",
-    label: "Content display",
-    desc: "How reasoning text fits inside each item.",
+    label: "Reasoning display",
+    desc: "Choose whether reasoning opens fully or stays in a compact scroll area.",
+    nested: true,
     choices: [
       { value: "expanded", label: "Expanded" },
       { value: "scroll", label: "Scroll" },
     ],
   }));
+  rsnCard.appendChild(showReasoningGroup);
+
+  rsnCard.appendChild(featureRow(state, {
+    id: "disable-shimmer",
+    label: "Disable thinking animation",
+    desc: "Keeps the Thinking label steady instead of pulsing.",
+    source: true,
+  }));
 
   rsnSection.appendChild(rsnCard);
   container.appendChild(rsnSection);
 
-  // Section: Tool Outputs
   const tlSection = el("section", "flex flex-col gap-2");
-  tlSection.appendChild(sectionTitle("Tool Outputs"));
+  tlSection.appendChild(sectionTitle("Tool Output"));
   const tlCard = roundedCard();
   tlCard.appendChild(featureRow(state, {
     id: "show-tool-outputs",
-    label: "Show in conversation",
-    desc: "Tool call outputs stay visible after execution instead of collapsing. Requires ASAR patch + restart.",
-    asar: true,
+    label: "Keep output visible",
+    desc: "Leaves command and tool results open in the chat.",
+    source: true,
   }));
   tlSection.appendChild(tlCard);
   container.appendChild(tlSection);
@@ -142,7 +166,7 @@ function renderSettings(root, state) {
 
 function featureRow(state, f) {
   const row = el("div", "flex items-center justify-between gap-4 p-3");
-  const left = el("div", "flex min-w-0 flex-col gap-1");
+  const left = el("div", "flex min-w-0 flex-1 flex-col gap-1");
   const label = el("div", "min-w-0 text-sm text-token-text-primary");
   label.textContent = f.label;
   left.appendChild(label);
@@ -151,20 +175,23 @@ function featureRow(state, f) {
     desc.textContent = f.desc;
     left.appendChild(desc);
   }
+  if (f.source) {
+    const warning = sourceWarningLine();
+    left.appendChild(warning);
+    const updateWarning = () => updateSourceFeatureWarning(state, f.id, warning);
+    state.sourceStatusSubscribers?.add(updateWarning);
+    updateWarning();
+  }
   row.appendChild(left);
 
   const initial = readFlag(state.api, f.id, state.defaults[f.id] === true);
   const sw = switchControl(initial, async (next) => {
     writeFlag(state.api, f.id, next);
-    if (f.asar) {
-      try {
-        const action = next ? "apply" : "revert";
-        const result = await state.api.ipc.invoke("reasoning-fixes:patch-asar", { action, features: [f.id] });
-        if (result?.ok) state.api.log.info("asar patch", action, f.id, "ok");
-        else state.api.log.error("asar patch", f.id, "failed", result?.error);
-      } catch (e) {
-        state.api.log.error("asar patch invoke failed", e);
-      }
+    if (f.source) {
+      state.api.log.info("feature selection changed", f.id, next);
+      if (f.id === "show-reasoning") state.updateReasoningStyleAvailability?.();
+      if (f.id === "disable-shimmer") applyDisableShimmerStyle(state, next);
+      await setSourceFeature(state, f.id, next);
     } else {
       if (next) activateFeature(state, f.id);
       else deactivateFeature(state, f.id);
@@ -174,23 +201,44 @@ function featureRow(state, f) {
   return row;
 }
 
+function notifySourceStatusSubscribers(state) {
+  for (const cb of state.sourceStatusSubscribers || []) {
+    try { cb(); } catch (e) { state.api.log.warn("source status subscriber failed", e); }
+  }
+}
+
+function sourceWarningLine() {
+  const line = el("div", "hidden rounded-md bg-token-editor-warning-background px-2 py-1 text-xs text-token-editor-warning-foreground");
+  return line;
+}
+
+function updateSourceFeatureWarning(state, id, line) {
+  const group = state.sourceStatus?.groups?.[id];
+  const message = group?.status === "unsupported" || group?.status === "forced_active" ? group.message : "";
+  line.textContent = message || "";
+  line.classList.toggle("hidden", !message);
+}
+
 function styleChoiceRow(state, f) {
-  const row = el("div", "flex flex-col gap-2 p-3");
+  const row = el(
+    "div",
+    f.nested
+      ? "ml-3 flex flex-col gap-2 border-l border-token-border px-3 py-3"
+      : "flex flex-col gap-2 p-3",
+  );
 
   const left = el("div", "flex flex-col gap-1");
   const label = el("div", "text-sm text-token-text-primary");
   label.textContent = f.label;
   left.appendChild(label);
-  if (f.desc) {
-    const desc = el("div", "text-token-text-secondary min-w-0 text-sm");
-    desc.textContent = f.desc;
-    left.appendChild(desc);
-  }
+  const desc = el("div", "text-token-text-secondary min-w-0 text-sm");
+  desc.textContent = f.desc || "";
+  left.appendChild(desc);
   row.appendChild(left);
 
-  // Segmented control: Expanded | Scroll
   const current = readStyle(state.api, "reasoning-style", "expanded");
   const segGroup = el("div", "flex gap-1");
+  const buttons = [];
 
   for (const choice of f.choices) {
     const isSelected = current === choice.value;
@@ -205,18 +253,53 @@ function styleChoiceRow(state, f) {
     btn.textContent = choice.label;
 
     btn.addEventListener("click", () => {
+      if (!isReasoningDisplayEnabled(state)) return;
       const oldVal = readStyle(state.api, "reasoning-style", "expanded");
       if (choice.value === oldVal) return;
       writeStyle(state.api, "reasoning-style", choice.value);
       applyReasoningStyle(state, choice.value);
-      // Re-render this row to update the selection highlight
       row.replaceWith(styleChoiceRow(state, f));
     });
 
+    buttons.push({ btn, isSelected });
     segGroup.appendChild(btn);
   }
   row.appendChild(segGroup);
+
+  const updateAvailability = () => {
+    const enabled = isReasoningDisplayEnabled(state);
+    row.classList.toggle("opacity-50", !enabled);
+    desc.textContent = enabled
+      ? (f.desc || "")
+      : reasoningDisplayDisabledText(state);
+    for (const { btn, isSelected } of buttons) {
+      btn.disabled = !enabled;
+      btn.className =
+        "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed " +
+        (!enabled
+          ? "bg-token-foreground/5 text-token-text-tertiary"
+          : isSelected
+            ? "bg-token-charts-blue text-white"
+            : "bg-token-foreground/5 text-token-text-secondary hover:bg-token-foreground/10");
+    }
+  };
+
+  state.updateReasoningStyleAvailability = updateAvailability;
+  state.sourceStatusSubscribers?.add(updateAvailability);
+  updateAvailability();
   return row;
+}
+
+function isReasoningDisplayEnabled(state) {
+  if (!readFlag(state.api, "show-reasoning", true)) return false;
+  const group = state.sourceStatus?.groups?.["show-reasoning"];
+  return !group || group.status === "active" || group.status === "unknown";
+}
+
+function reasoningDisplayDisabledText(state) {
+  if (!readFlag(state.api, "show-reasoning", true)) return "Turn on Show reasoning first.";
+  if (!state.sourceStatus) return "Checking whether reasoning is available.";
+  return "This Codex version needs a tweak update before reasoning display can be controlled.";
 }
 
 // ───────────────────────────────────────────────────── CSS injection ──
@@ -229,27 +312,56 @@ function applyReasoningStyle(state, style) {
   const api = state.api;
 
   if (style === "expanded") {
-    // Expanded mode: the ASAR patch removed max-h-35 already.
-    // Just clean up any "scroll" CSS that might add constraints back.
-    api.log.info("reasoning style: expanded (ASAR baseline)");
-  } else {
-    // Scroll mode: the ASAR patch removed max-h-35 from the bundle,
-    // so we inject CSS to RE-ADD the scroll constraint at runtime.
+    // Remove max-height from the reasoning item body container only.
+    // Codex ships with max-h-35 overflow-y-auto by default (Scroll baseline).
+    // We inject a style that overrides it for Expanded mode.
     const styleEl = document.createElement("style");
-    styleEl.id = "reasoning-fixes-scroll";
-    styleEl.textContent = [
-      '[class="[--edge-fade-distance:1rem]"] {',
-      '  max-height: 140px !important;',
-      '  overflow-y: auto !important;',
-      '}',
-    ].join("\n");
+    styleEl.id = "reasoning-fixes-expanded";
+    styleEl.textContent = `
+      [class~="vertical-scroll-fade-mask"][class~="max-h-35"] {
+        max-height: none !important;
+        overflow: visible !important;
+      }
+    `;
     document.head.appendChild(styleEl);
 
     state.cssInjections.set("reasoning-style", () => {
       styleEl.remove();
     });
-    api.log.info("reasoning style: scroll (CSS injected)");
+    api.log.info("reasoning style: expanded");
+  } else {
+    // Scroll mode — Codex's baseline already has max-h-35.
+    // Just clean up any injected CSS (done above).
+    api.log.info("reasoning style: scroll (baseline)");
   }
+}
+
+function applyDisableShimmerStyle(state, disabled) {
+  const prev = state.cssInjections.get("disable-shimmer");
+  if (prev) { try { prev(); } catch(e) {} state.cssInjections.delete("disable-shimmer"); }
+  if (!disabled) return;
+
+  const styleEl = document.createElement("style");
+  styleEl.id = "reasoning-fixes-disable-shimmer";
+  styleEl.textContent = `
+    .loading-shimmer-pure-text.text-size-chat.select-none.truncate {
+      animation: none !important;
+      transition: none !important;
+      background: none !important;
+      -webkit-text-fill-color: var(--text-primary, currentColor) !important;
+      text-fill-color: var(--text-primary, currentColor) !important;
+    }
+
+    .loading-shimmer-pure-text.text-size-chat.select-none.truncate[class*="cadencedShimmer"] {
+      animation: none !important;
+    }
+  `;
+  document.head.appendChild(styleEl);
+
+  state.cssInjections.set("disable-shimmer", () => {
+    styleEl.remove();
+  });
+  state.api.log.info("thinking animation disabled");
 }
 
 // ─────────────────────────────────────────────────────────── feature reg ──
@@ -336,57 +448,9 @@ const FEATURES = {
 
 // ─────────────────────────────────────────────────────── main process ──
 
-const REASONING_FIXES_IPC_KEY = "__reasoningFixesIpcHandler";
 function startMainHandler(api) {
-  if (globalThis[REASONING_FIXES_IPC_KEY]) { api.log.info("[reasoning-fixes] main handler already registered"); return; }
-  globalThis[REASONING_FIXES_IPC_KEY] = true;
-  try {
-    if (typeof api.ipc?.handle !== "function") { api.log.error("[reasoning-fixes] api.ipc.handle not available"); return; }
-    api.ipc.handle("reasoning-fixes:patch-asar", async (_event, { action, features }) => {
-      try { return await handleAsarPatch(action, features); }
-      catch (e) { return { ok: false, error: String(e) }; }
-    });
-    api.log.info("[reasoning-fixes] main handler ready");
-  } catch (e) {
-    api.log.error("[reasoning-fixes] failed to register IPC handler: " + (e?.message || String(e)));
-  }
-}
-
-async function handleAsarPatch(action, features) {
-  const path = require("node:path");
-  const fs = require("node:fs");
-  const { execSync } = require("node:child_process");
-  const ASAR = "/Applications/Codex.app/Contents/Resources/app.asar";
-  const PLIST = "/Applications/Codex.app/Contents/Info.plist";
-  const SCRIPT = path.join(__dirname, "patch_codex_app_asar.py");
-  const featureFlags = Array.isArray(features) && features.length ? features : ["all"];
-
-  if (action === "apply") {
-    if (!fs.existsSync(SCRIPT)) return { ok: false, error: `patch script not found` };
-    try { execSync("which npx", { stdio: "ignore" }); } catch { return { ok: false, error: "npx not found" }; }
-    try {
-      const flags = featureFlags.map(f => `--enable "${f}"`).join(" ");
-      execSync(`python3 "${SCRIPT}" --asar "${ASAR}" --info-plist "${PLIST}" ${flags}`, { stdio: "pipe", timeout: 30_000 });
-      try { execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, { stdio: "pipe", timeout: 15_000 }); } catch {}
-      return { ok: true };
-    } catch (e) { return { ok: false, error: e.stderr?.toString() || e.stdout?.toString() || String(e) }; }
-  }
-
-  if (action === "revert") {
-    const dir = path.dirname(ASAR);
-    let backups;
-    try { backups = fs.readdirSync(dir).filter(f => f.startsWith("app.asar.bak.")); } catch { return { ok: false, error: "cannot read backups" }; }
-    if (!backups.length) return { ok: false, error: "no backup found" };
-    backups.sort().reverse();
-    try {
-      fs.copyFileSync(path.join(dir, backups[0]), ASAR);
-      const pb = fs.readdirSync(dir).filter(f => f.startsWith("Info.plist.bak."));
-      if (pb.length) { pb.sort().reverse(); fs.copyFileSync(path.join(dir, pb[0]), PLIST); }
-      try { execSync(`codesign --force --deep --sign - "/Applications/Codex.app"`, { stdio: "pipe", timeout: 15_000 }); } catch {}
-      return { ok: true };
-    } catch (e) { return { ok: false, error: String(e) }; }
-  }
-  return { ok: false, error: `unknown action: ${action}` };
+  const { startReasoningFixesMain } = require("./source-patcher.js");
+  return startReasoningFixesMain(api);
 }
 
 // ─────────────────────────────────────────────────────────────── helpers ──
@@ -396,6 +460,48 @@ function readFlag(api, id, fallback) {
   return typeof v === "boolean" ? v : !!fallback;
 }
 function writeFlag(api, id, on) { api.storage.set(`feature:${id}`, !!on); }
+
+async function syncSourceBackedSettings(state) {
+  try {
+    const values = {};
+    for (const id of ["show-reasoning", "disable-shimmer", "show-tool-outputs"]) {
+      values[id] = readFlag(state.api, id, state.defaults[id] === true);
+    }
+    const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
+    state.sourceStatus = result;
+    notifySourceStatusSubscribers(state);
+  } catch (e) {
+    state.api.log.warn("source settings sync failed", e?.message || String(e));
+  }
+}
+
+async function refreshSourceStatus(state) {
+  try {
+    const result = await state.api.ipc.invoke("source-patches-v1", { action: "status" });
+    state.sourceStatus = result;
+    if (result?.settings) syncRendererFlagsFromSourceStatus(state, result.settings);
+    notifySourceStatusSubscribers(state);
+  } catch (e) {
+    state.api.log.warn("source status refresh failed", e?.message || String(e));
+  }
+}
+
+async function setSourceFeature(state, id, value) {
+  try {
+    const result = await state.api.ipc.invoke("source-patches-v1", { action: "set-feature", id, value });
+    state.sourceStatus = result;
+    await refreshSourceStatus(state);
+    notifySourceStatusSubscribers(state);
+  } catch (e) {
+    state.api.log.warn("source feature update failed", id, e?.message || String(e));
+  }
+}
+
+function syncRendererFlagsFromSourceStatus(state, settings) {
+  for (const id of ["show-reasoning", "disable-shimmer", "show-tool-outputs"]) {
+    if (typeof settings[id] === "boolean") writeFlag(state.api, id, settings[id]);
+  }
+}
 
 function readStyle(api, id, fallback) {
   const v = api.storage.get(`style:${id}`, undefined);
@@ -425,7 +531,7 @@ function switchControl(initial, onChange) {
   const apply = (on) => {
     btn.setAttribute("aria-checked", String(on));
     btn.dataset.state = on ? "checked" : "unchecked";
-    btn.className = "inline-flex items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction";
+    btn.className = "inline-flex shrink-0 items-center text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:rounded-full cursor-interaction";
     pill.className = "relative inline-flex shrink-0 items-center rounded-full transition-colors duration-200 ease-out h-5 w-8 " + (on ? "bg-token-charts-blue" : "bg-token-foreground/20");
     pill.dataset.state = on ? "checked" : "unchecked";
     knob.dataset.state = on ? "checked" : "unchecked";
