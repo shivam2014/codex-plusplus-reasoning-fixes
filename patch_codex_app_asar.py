@@ -92,6 +92,11 @@ def find_split_items_chunk(extracted_root):
         if f.name.startswith("split-items-into-render-groups-") and f.suffix == ".js": return f
     raise RuntimeError("Could not find split-items chunk")
 
+def find_composer_bundle(extracted_root):
+    for f in (extracted_root / "webview/assets").iterdir():
+        if f.name.startswith("composer-") and f.suffix == ".js": return f
+    raise RuntimeError("Could not find composer bundle")
+
 def find_shimmer_chunk(extracted_root):
     for f in (extracted_root / "webview/assets").iterdir():
         if f.name.startswith("thinking-shimmer-") and f.suffix == ".js": return f
@@ -105,38 +110,36 @@ PATCHES = {
         replacement=r'if(t.type===`reasoning`){i&&s(`explored`);r.push({kind:`item`,item:t});continue}'),
     # 2. Don't collapse exploration accordion when done
     "prevent-collapse": PatchRule(name="exploration_no_autocollapse_on_finish",
-        unpatched=re.compile(r'\(\)=>\{\w+\((\w+)\?`preview`:`collapsed`\)\}'),
-        patched=re.compile(r'\(\)=>\{\w+&&\w+\(`preview`\)\}'),
-        replacement=r'()=>{\1&&\2("preview")}'),
-    # 3. Don't collapse reasoning output when thinking completes
-    "reasoning-start-expanded": PatchRule(name="reasoning_no_autocollapse_on_finish",
-        unpatched=re.compile(r'if\(!\w+\)\{\w+\(!1\);return\}'),
-        patched=re.compile(r'if\(!\w+\)\{return\}'),
-        replacement=r'if(!\1){return}'),
-    # 4. Reasoning items start expanded (useState(!0) instead of useState(o))
-    "reasoning-start-expanded": PatchRule(name="reasoning_start_expanded_useState",
-        unpatched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(o\),p=!o'),
-        patched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(!0\\),p=!o'),
-        replacement=r'[d,f]=(0,Z.useState)(!0),p=!o'),
+        unpatched=re.compile(r'\(\)=>\{(\w+)\((\w+)\?`preview`:`collapsed`\)\}'),
+        patched=re.compile(r'\(\)=>\{\w+&&\w+\(\"preview\"\)\}'),
+        replacement=r'()=>{\2&&\1("preview")}'),
+#     # 3. Don't collapse reasoning output when thinking completes
+#     "reasoning-start-expanded": PatchRule(name="reasoning_no_autocollapse_on_finish",
+#         unpatched=re.compile(r'if\(!\w+\)\{\w+\(!1\);return\}'),
+#         patched=re.compile(r'if\(!\w+\)\{return\}'),
+#         replacement=r'if(!\1){return}'),
+#     # 4. Reasoning items start expanded (useState(!0) instead of useState(o))
+#     "reasoning-start-expanded": PatchRule(name="reasoning_start_expanded_useState",
+#         unpatched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(o\),p=!o'),
+#         patched=re.compile(r'\[d,f\]=\\(0,Z\\.useState\\)\(!0\\),p=!o'),
+#         replacement=r'[d,f]=(0,Z.useState)(!0),p=!o'),
     # 5. Remove max-height scroll constraint on reasoning body
     "keep-agent-expanded": PatchRule(name="keep_agent_body_expanded",
         unpatched=re.compile(r'at=it\?\$e:\!1'),
         patched=re.compile(r'at=\!1'),
         replacement=r'at=!1',
         expected_replacements=1),
-    "disable-shimmer": PatchRule(name="disable_thinking_shimmer",
-        unpatched=re.compile(r'!\(\w+===void 0\|\|\1\)'),
-        patched=re.compile(r'true'),
-        replacement=r'true',
-        expected_replacements=1),
-    "reasoning-no-blink": PatchRule(name="reasoning_no_blink_during_stream",
-        unpatched=re.compile(r'g=o\?\!\!h:d'),
-        patched=re.compile(r'g=o\?\!0:d'),
-        replacement=r'g=o?!0:d'),
+    # "disable-shimmer": (removed - regex broken, not used in settings)
+    # "reasoning-no-blink": (removed - not needed, already working)
     "reasoning-full-expand": PatchRule(name="reasoning_full_expand_no_scroll",
         unpatched=re.compile(r'`vertical-scroll-fade-mask max-h-35 overflow-y-auto \[--edge-fade-distance:1rem\]`'),
         patched=re.compile(r'`\[--edge-fade-distance:1rem\]`'),
         replacement=r'`[--edge-fade-distance:1rem]`'),
+    # 6. Don't collapse reasoning items when thinking completes
+    "reasoning-no-autocollapse": PatchRule(name="reasoning_no_autocollapse_on_finish",
+        unpatched=re.compile(r'if\(!(\w+)\)\{(\w+)\(!1\);return\}'),
+        patched=re.compile(r'if\(!\w+\)\{return\}'),
+        replacement=r'if(!\1){return}'),
 }
 
 # Map feature names to which bundles they patch
@@ -177,7 +180,8 @@ def main():
         run_checked("npx", "-y", "asar", "extract", str(app_asar), str(extracted))
 
         bundles = {
-            "composer": find_webview_bundle(extracted),
+            "index": find_webview_bundle(extracted),
+            "composer": find_composer_bundle(extracted),
             "split-items": find_split_items_chunk(extracted),
             "shimmer": find_shimmer_chunk(extracted),
         }
