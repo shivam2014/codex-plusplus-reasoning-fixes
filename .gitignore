@@ -3,3 +3,5 @@ node_modules/
 Codex.app
 source/
 .DS_Store
+*.pyc
+__pycache__/
