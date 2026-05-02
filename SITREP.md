@@ -35,6 +35,8 @@ The strict rules preserve the old behavior set:
 - keep the agent item body expanded above the assistant response
 - disable streaming blink
 - optionally disable the thinking shimmer
+- keep file-edit cards as standalone main-chat items instead of collapsed tool
+  activity by classifying `patch` as recognized but non-groupable
 
 `reasoning-full-expand` was intentionally not carried forward as a source rule
 because the settings page already provides the same user-facing choice with live

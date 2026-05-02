@@ -9,6 +9,7 @@
  *  • Exploration accordion stays open (fiber hook, live)
  *  • Reasoning items visible in conversation (source patch)
  *  • Reasoning display: scrollable or fully expanded (CSS injection, live)
+ *  • File edits stay visible as main-chat items (source patch)
  *  • Tool outputs stay visible (source patch)
  *
  * Acknowledgments
@@ -46,6 +47,7 @@ module.exports = {
         "show-reasoning": true,
         "disable-shimmer": true,
         "reasoning-style": "expanded",  // "expanded" or "scroll"
+        "show-file-edits": true,
         "show-tool-outputs": false,
       },
     };
@@ -56,7 +58,7 @@ module.exports = {
       settingsPageHandle = api.settings.registerPage({
         id: "main",
         title: "Reasoning & Exploration Fixes",
-        description: "Improve how reasoning, exploration, and tool outputs display in the conversation.",
+        description: "Improve how reasoning, exploration, file edits, and tool outputs display in the conversation.",
         iconSvg:
           '<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="icon-sm inline-block align-middle">' +
           '<path d="M10 3v14M3 10h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
@@ -148,6 +150,18 @@ function renderSettings(root, state) {
 
   rsnSection.appendChild(rsnCard);
   container.appendChild(rsnSection);
+
+  const fileEditSection = el("section", "flex flex-col gap-2");
+  fileEditSection.appendChild(sectionTitle("File Edits"));
+  const fileEditCard = roundedCard();
+  fileEditCard.appendChild(featureRow(state, {
+    id: "show-file-edits",
+    label: "Show file edits in chat",
+    desc: "Keeps file-edit cards in the main chat instead of grouping them into tool activity.",
+    source: true,
+  }));
+  fileEditSection.appendChild(fileEditCard);
+  container.appendChild(fileEditSection);
 
   const tlSection = el("section", "flex flex-col gap-2");
   tlSection.appendChild(sectionTitle("Tool Output"));
@@ -464,7 +478,7 @@ function writeFlag(api, id, on) { api.storage.set(`feature:${id}`, !!on); }
 async function syncSourceBackedSettings(state) {
   try {
     const values = {};
-    for (const id of ["show-reasoning", "disable-shimmer", "show-tool-outputs"]) {
+    for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-tool-outputs"]) {
       values[id] = readFlag(state.api, id, state.defaults[id] === true);
     }
     const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
@@ -498,7 +512,7 @@ async function setSourceFeature(state, id, value) {
 }
 
 function syncRendererFlagsFromSourceStatus(state, settings) {
-  for (const id of ["show-reasoning", "disable-shimmer", "show-tool-outputs"]) {
+  for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-tool-outputs"]) {
     if (typeof settings[id] === "boolean") writeFlag(state.api, id, settings[id]);
   }
 }

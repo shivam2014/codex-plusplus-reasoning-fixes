@@ -5,6 +5,7 @@ const RELOAD_TOKEN_KEY = "__reasoningFixesSourceReloadTokenV1";
 const DEFAULTS = {
   "show-reasoning": true,
   "disable-shimmer": true,
+  "show-file-edits": true,
   "show-tool-outputs": false,
 };
 
@@ -18,6 +19,7 @@ const SETTING_FEATURES = {
     "keep-agent-expanded",
   ],
   "disable-shimmer": ["disable-shimmer"],
+  "show-file-edits": ["file-edits-no-tool-group"],
   "show-tool-outputs": ["keep-agent-expanded"],
 };
 
@@ -70,6 +72,15 @@ const PATCHES = {
     unpatched: /g=o\?\!\!h:d/,
     patched: /g=o\?\!0:d/,
     replacement: "g=o?!0:d",
+  },
+  "file-edits-no-tool-group": {
+    name: "file_edits_not_collapsed_tool_activity",
+    bundle: "split-items",
+    // Keep patch as a recognized case; making it fall through triggers Codex's
+    // exhaustive unexpected-value throw and breaks conversation rendering.
+    unpatched: /e\.type===`exploration`\|\|e\.type===`patch`\|\|e\.type===`exec`/,
+    patched: /e\.type===`exploration`\?!0:e\.type===`patch`\?!1:e\.type===`exec`/,
+    replacement: "e.type===`exploration`?!0:e.type===`patch`?!1:e.type===`exec`",
   },
 };
 
