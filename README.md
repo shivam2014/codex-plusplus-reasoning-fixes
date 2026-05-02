@@ -73,6 +73,7 @@ co.shivam94.reasoning-fixes/
 | Disable streaming pulse | Source patch on composer chunk | Automatic |
 | Show file edits in chat | Source patch on split-items chunk | Automatic |
 | Keep output visible | Source patch on composer chunk | Automatic |
+| Preserve item order | Source patch on split-items chunk | Automatic |
 
 ## Architecture
 
@@ -146,6 +147,7 @@ ASAR extraction, repacking, or codesigning is involved.
 | `keep-agent-expanded` | composer | Keeps the agent item body expanded above the assistant response |
 | `disable-shimmer` | shimmer | Disables the pulsing text animation on the "Thinking" label |
 | `file-edits-no-tool-group` | split-items | Keeps `patch`-type items out of collapsed tool-activity grouping |
+| `preserve-item-order` | split-items | Only reorders agent items when the first item is an output, preserving multi-reasoning chronological order |
 
 ### Compatibility model
 
