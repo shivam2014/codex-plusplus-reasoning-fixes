@@ -24,6 +24,7 @@ matcher is deliberately strict so failures are visible instead of silently wrong
 | **Show reasoning** | ON | Thinking steps and reasoning items render as standalone conversation items. |
 | **Reasoning display** | Expanded | Live CSS. **Expanded** removes the internal scroll box. **Scroll** restores the stock compact box. |
 | **Disable thinking animation** | ON | Keeps the "Thinking" label steady instead of pulsing. Immediate CSS fallback; full effect after reload. |
+| **Disable streaming pulse** | ON | Stops the color pulse on the reasoning text while it is actively streaming. Source-backed. |
 
 ### File Edits
 
@@ -162,6 +163,7 @@ co.shivam94.reasoning-fixes/
 | Show reasoning | Source patch on split-items and composer chunks | Automatic |
 | Reasoning display | CSS injection | No |
 | Disable thinking animation | Source patch plus CSS fallback | Automatic |
+| Disable streaming pulse | Source patch on composer chunk | Automatic |
 | Show file edits in chat | Source patch on split-items chunk | Automatic |
 | Keep output visible | Source patch on composer chunk | Automatic |
 

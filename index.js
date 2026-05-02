@@ -49,6 +49,7 @@ module.exports = {
         "reasoning-style": "expanded",  // "expanded" or "scroll"
         "show-file-edits": true,
         "show-tool-outputs": false,
+        "disable-streaming-pulse": true,
       },
     };
     rendererState = state;
@@ -145,6 +146,13 @@ function renderSettings(root, state) {
     id: "disable-shimmer",
     label: "Disable thinking animation",
     desc: "Keeps the Thinking label steady instead of pulsing.",
+    source: true,
+  }));
+
+  rsnCard.appendChild(featureRow(state, {
+    id: "disable-streaming-pulse",
+    label: "Disable streaming pulse",
+    desc: "Stops the color pulse on the reasoning text while it is actively streaming.",
     source: true,
   }));
 
@@ -478,7 +486,7 @@ function writeFlag(api, id, on) { api.storage.set(`feature:${id}`, !!on); }
 async function syncSourceBackedSettings(state) {
   try {
     const values = {};
-    for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-tool-outputs"]) {
+    for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs"]) {
       values[id] = readFlag(state.api, id, state.defaults[id] === true);
     }
     const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
@@ -512,7 +520,7 @@ async function setSourceFeature(state, id, value) {
 }
 
 function syncRendererFlagsFromSourceStatus(state, settings) {
-  for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-tool-outputs"]) {
+  for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs"]) {
     if (typeof settings[id] === "boolean") writeFlag(state.api, id, settings[id]);
   }
 }

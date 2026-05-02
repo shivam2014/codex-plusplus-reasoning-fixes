@@ -7,6 +7,7 @@ const DEFAULTS = {
   "disable-shimmer": true,
   "show-file-edits": true,
   "show-tool-outputs": false,
+  "disable-streaming-pulse": true,
 };
 
 const SETTING_FEATURES = {
@@ -19,6 +20,7 @@ const SETTING_FEATURES = {
     "keep-agent-expanded",
   ],
   "disable-shimmer": ["disable-shimmer"],
+  "disable-streaming-pulse": ["shimmer-no-fade-in"],
   "show-file-edits": ["file-edits-no-tool-group"],
   "show-tool-outputs": ["keep-agent-expanded"],
 };
@@ -65,6 +67,13 @@ const PATCHES = {
     unpatched: /!\((\w+)===void 0\|\|\1\)/,
     patched: /,true\)\{/,
     replacement: "true",
+  },
+  "shimmer-no-fade-in": {
+    name: "disable_reasoning_fade_in_during_stream",
+    bundle: "composer",
+    unpatched: /fadeType:\w+\?`indexed`:`none`/,
+    patched: /fadeType:`none`/,
+    replacement: "fadeType:`none`",
   },
   "reasoning-no-blink": {
     name: "reasoning_no_blink_during_stream",
