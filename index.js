@@ -484,7 +484,7 @@ function setupCollapseAllButton(state) {
     if (document.getElementById("rft-css")) return;
     styleEl = document.createElement("style");
     styleEl.id = "rft-css";
-    styleEl.textContent = "#rft-btn{position:fixed;bottom:24px;right:24px;z-index:9999;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);background:#1e1e1e;color:#ccc;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);opacity:0.5;transition:opacity 0.2s,transform 0.2s}#rft-btn:hover{opacity:1;transform:scale(1.05)}#rft-btn svg{width:20px;height:20px}";
+    styleEl.textContent = "#rft-btn{position:fixed;bottom:24px;right:24px;z-index:9999;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);background:#1e1e1e;color:#ccc;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);opacity:0.5;transition:opacity 0.2s,transform 0.2s}#rft-btn:hover{opacity:1;transform:scale(1.05)}#rft-btn svg{width:20px;height:20px}body.rft-hide-all [data-testid=exploration-accordion-body]{max-height:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}body.rft-hide-all [class*=cursor-interaction]+[style*=opacity]{max-height:0!important;overflow:hidden!important;opacity:0!important;pointer-events:none!important}";
     document.head.appendChild(styleEl);
   }
 
@@ -510,47 +510,8 @@ function setupCollapseAllButton(state) {
 
   function toggleAll() {
     collapsed = !collapsed;
+    document.body.classList.toggle("rft-hide-all", collapsed);
     setIcon();
-    window.__reasoningFixesForceOverride = true;
-
-    // Tool calls (exploration accordions): fiber dispatch with override
-    window.__reasoningFixesForceOverride = true;
-    document.querySelectorAll('[data-testid="exploration-accordion-body"]').forEach(function(el) {
-      try {
-        var fiber = null;
-        try { fiber = api.react && api.react.getFiber(el); } catch(e2) {}
-        if (!fiber) {
-          var k = Object.keys(el).find(function(k) { return k.startsWith("__reactFiber$"); });
-          if (k) fiber = el[k];
-        }
-        if (!fiber) return;
-        var d = 0;
-        while (fiber && d < 30) {
-          var h = fiber.memoizedState;
-          while (h) {
-            var v = h.memoizedState;
-            if (v === "preview" || v === "collapsed" || v === "expanded") {
-              try { h.queue.dispatch(collapsed ? "collapsed" : "expanded"); } catch(e3) {}
-              return;
-            }
-            h = h.next;
-          }
-          fiber = fiber.return;
-          d++;
-        }
-      } catch(e4) {}
-    });
-    window.__reasoningFixesForceOverride = false;
-
-    // Reasoning headers: cursor-interaction with framer-motion next sibling
-    document.querySelectorAll("[class*=cursor-interaction]").forEach(function(el) {
-      var next = el.nextElementSibling;
-      if (next && next.style && next.style.opacity !== "") {
-        el.click();
-      }
-    });
-
-    window.__reasoningFixesForceOverride = false;
   }
 
   if (document.readyState === "loading") {
