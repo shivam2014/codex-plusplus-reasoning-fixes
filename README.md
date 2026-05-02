@@ -1,129 +1,115 @@
 # Reasoning & Exploration Fixes
 
 A [Codex++](https://github.com/b-nnett/codex-plusplus) tweak that improves the
-conversation UI in Codex Desktop.
+conversation UI in Codex Desktop without modifying `Codex.app` on disk.
 
 ## Settings
 
-The tweak adds a settings page with three sections. All settings persist across
-restarts via `api.storage`.
+The tweak adds a settings page with live renderer controls and per-feature
+compatibility warnings when Codex changes. Settings persist across restarts via
+Codex++ storage.
 
 ### Exploration
 
 | Option | Default | Effect |
-|---|---|---|
-| **Keep accordion open** | ON | Exploration panel stays expanded after Codex finishes searching and reading files. Uses React fiber hook — no restart needed. |
+|---|---:|---|
+| **Keep accordion open** | ON | Exploration panels stay expanded after Codex finishes searching and reading files. Uses a React fiber hook and does not require reload. |
 
 ### Reasoning
 
 | Option | Default | Effect |
-|---|---|---|
-| **Show in conversation** | ON | Thinking steps and reasoning items appear in the conversation log instead of being hidden inside the exploration accordion. Requires ASAR patch. |
-| **Content display** | Expanded | **Expanded**: no height limit, full reasoning text visible without scrolling. **Scroll**: reasoning text fits in a compact box with vertical scrolling. The ASAR baseline is scroll-free (Expanded); Scroll mode injects the constraint at runtime via CSS. |
+|---|---:|---|
+| **Show reasoning** | ON | Source-backed. Thinking steps and reasoning items render as standalone conversation items. |
+| **Reasoning display** | Expanded | Live CSS. **Expanded** removes Codex's internal reasoning scroll box. **Scroll** restores the compact reasoning box. |
+| **Disable thinking animation** | ON | Source-backed with an immediate CSS fallback. Keeps the Thinking label steady instead of pulsing. |
 
 ### Tool Outputs
 
 | Option | Default | Effect |
-|---|---|---|
-| **Show in conversation** | OFF | Tool call outputs (command results, file contents, search results) stay visible after execution instead of collapsing. Requires ASAR patch. |
+|---|---:|---|
+| **Keep output visible** | OFF | Source-backed. Tool output sections stay visible. |
 
-## How it works
+Source-backed options are applied by the Codex++ main-process tweak as Codex
+serves its `app://` JavaScript chunks. The tweak wraps Electron's `protocol`
+handler and transforms matching chunks in memory. Source-backed setting changes
+schedule a Codex window reload through the main-process tweak when needed. It
+does not extract, repack, sign, or rewrite the app bundle.
 
-### prevent-collapse (fiber-based, no restart)
+If Codex changes a minified chunk enough that a source rule no longer matches,
+the relevant setting shows a warning near its toggle:
 
-Uses the codex++ `api.react.getFiber()` API to walk React's fiber tree from
-the exploration accordion DOM element (`data-testid="exploration-accordion-body"`)
-upward. It finds the `useState` hook controlling the panel state (preview /
-expanded / collapsed) and wraps the dispatch function to intercept any
-`"collapsed"` value, rewriting it to `"preview"`.
+> This Codex version does not match the known source shape for this feature. The
+> tweak likely needs an update.
 
-### keep-agent-expanded (ASAR patch)
+The matcher is deliberately strict. Unsupported features fail visibly instead of
+guessing a replacement.
 
-The agent items section (containing reasoning, tool calls, and exploration)
-auto-collapses after the assistant response starts streaming. By default, Codex
-collapses this section once the assistant begins responding — reasoning and
-tool outputs end up hidden behind a "N items" badge below the answer.
+## How It Works
 
-This patch keeps the agent body always expanded by setting the collapsed state
-to `false` unconditionally in the render function (`at=!1`), so reasoning stays
-visible above the assistant response.
+### Renderer fiber hook
 
-### show-reasoning (ASAR patch)
+The live `exploration-keep-open` feature uses `api.react.getFiber()` to find the
+exploration accordion state hook and rewrite `"collapsed"` dispatches to
+`"preview"`.
 
-The render-group builder in `split-items-into-render-groups` was pushing
-reasoning items into the exploration buffer. Inside the exploration accordion,
-the sub-item renderer filters out all non-`exec` items, which meant reasoning
-items were silently dropped.
+### Source patches
 
-The patch makes reasoning items flush the exploration buffer and push as
-standalone turn items instead — where the existing reasoning component renders
-them properly.
+The main-process side patches source as Codex serves app assets. The current
+source-backed rules:
 
-### reasoning-no-autocollapse (ASAR patch)
+- render reasoning outside the exploration buffer
+- let standalone reasoning items reach Codex's reasoning renderer
+- keep reasoning expanded after thinking completes
+- start reasoning expanded
+- keep the agent item body expanded above the assistant response
+- optionally disable the thinking shimmer
+- disable streaming blink
 
-When the model finishes thinking, the reasoning component's `useEffect` fires
-and sets the expanded state to `false`, collapsing the content. The patch
-removes the `setExpanded(false)` call in that effect (`S(!1)` → removed), so
-reasoning content stays visible after completion.
-
-### reasoning-full-expand (ASAR patch)
-
-Removes the `max-h-35 overflow-y-auto` CSS constraint from the reasoning
-content container, so the full text is visible without internal scrolling.
-The Scroll/Expanded toggle in settings works by injecting CSS at runtime:
-Expanded is the ASAR baseline; Scroll re-adds `max-height: 140px;
-overflow-y: auto` via a `document.createElement("style")` injection.
-
-### show-tool-outputs (ASAR patch)
-
-Shell command outputs (inside the `fj` component) start expanded so results
-are visible without manual expansion.
+The upstream `v0.7.1` ASAR patch fixed the old `reasoning-no-autocollapse`
+matcher and inverted the Scroll/Expanded CSS behavior because its ASAR baseline
+removed Codex's reasoning height class. This source-backed version keeps that
+no-autocollapse behavior as an in-memory source rule, but intentionally leaves
+the reasoning height class in Codex's source. Expanded mode is therefore the CSS
+override, and Scroll mode remains Codex's unmodified baseline.
 
 ## Installation
 
-```bash
-codexplusplus tweaks install co.shivam94.reasoning-fixes
-```
-
-Or clone directly and symlink:
+Codex++ loads tweaks from its local tweaks directory. On macOS:
 
 ```bash
 git clone https://github.com/shivam2014/codex-plusplus-reasoning-fixes.git \
   ~/Library/Application\ Support/codex-plusplus/tweaks/co.shivam94.reasoning-fixes
 ```
 
-After cloning, run the ASAR patcher:
+For local development from an existing checkout, link it into the tweaks
+directory:
 
 ```bash
-python3 ~/Library/Application\ Support/codex-plusplus/tweaks/co.shivam94.reasoning-fixes/patch_codex_app_asar.py
+codexplusplus dev . --no-watch --replace
 ```
-
-Then restart Codex.
 
 ## Files
 
-```
+```text
 co.shivam94.reasoning-fixes/
-├── manifest.json              # Codex++ tweak manifest
-├── index.js                   # Tweak source with settings UI and fiber hooks
-└── patch_codex_app_asar.py    # ASAR patching script
+├── manifest.json       # Codex++ tweak manifest
+├── index.js            # Renderer settings UI and live CSS/fiber features
+└── source-patcher.js   # Main-process source transformer
 ```
 
-## Patch inventory
+## Patch Inventory
 
-| Patch | Mechanism | Restart needed |
+| Setting or rule | Mechanism | Window reload needed |
 |---|---|---|
-| `prevent-collapse` | React fiber dispatch wrapper | No |
-| `keep-agent-expanded` | ASAR — render function | Yes |
-| `show-reasoning` | ASAR — split-items chunk | Yes |
-| `reasoning-no-autocollapse` | ASAR — useEffect | Yes |
-| `reasoning-full-expand` | ASAR — className strip | Yes |
-| `show-tool-outputs` | ASAR — component | Yes |
-| Content display toggle | CSS injection | No |
+| Keep accordion open | React fiber dispatch wrapper | No |
+| Show reasoning | Source patch on split-items and composer chunks | Automatic |
+| Reasoning display | CSS injection | No |
+| Disable thinking animation | Source patch plus CSS fallback | Automatic |
+| Keep output visible | Source patch on composer chunk | Automatic |
 
 ## Acknowledgments
 
-- **Codex++** ([b-nnett/codex-plusplus](https://github.com/b-nnett/codex-plusplus)) —
-  Tweak runtime and React fiber introspection API.
-- **Original patch** ([andrew-kramer-inno's gist](https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd)) —
-  Inspiration for the ASAR patching approach.
+- **Codex++** ([b-nnett/codex-plusplus](https://github.com/b-nnett/codex-plusplus)) -
+  tweak runtime, settings injection, IPC, and React fiber introspection API.
+- **Original patch** ([andrew-kramer-inno's gist](https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd)) -
+  inspiration for the source transformations.

@@ -1,8 +1,8 @@
 {
   "id": "co.shivam94.reasoning-fixes",
   "name": "Reasoning & Exploration Fixes",
-  "version": "0.3.0",
-  "description": "Keep exploration panels open, show and fully expand reasoning items without scrolling. Built on Codex++ with inspiration from andrew-kramer-inno's ASAR patching approach.",
+  "version": "0.8.0",
+  "description": "Keep exploration panels open and use Codex++ source patches for visible, expanded reasoning and tool output.",
   "author": {
     "name": "shivam94",
     "url": "https://github.com/shivam2014/codex-plusplus-reasoning-fixes"
