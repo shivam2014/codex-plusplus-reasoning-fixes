@@ -49,6 +49,7 @@ module.exports = {
         "reasoning-style": "expanded",  // "expanded" or "scroll"
         "show-file-edits": true,
         "show-tool-outputs": false,
+        "collapse-all-toggle": true,
         "disable-streaming-pulse": true,
       },
     };
@@ -70,7 +71,9 @@ module.exports = {
     }
 
     // Floating collapse/expand all button
-    setupCollapseAllButton(state);
+    if (readFlag(state.api, "collapse-all-toggle", true)) {
+      setupCollapseAllButton(state);
+    }
 
     // Activate live features
     rendererState.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
@@ -186,6 +189,18 @@ function renderSettings(root, state) {
   }));
   tlSection.appendChild(tlCard);
   container.appendChild(tlSection);
+
+  const caSection = el("section", "flex flex-col gap-2");
+  caSection.appendChild(sectionTitle("Collapse All"));
+  const caCard = roundedCard();
+  caCard.appendChild(featureRow(state, {
+    id: "collapse-all-toggle",
+    label: "Show collapse/expand button",
+    desc: "Adds a floating button to collapse or expand all reasoning items and tool calls at once.",
+    source: false,
+  }));
+  caSection.appendChild(caCard);
+  container.appendChild(caSection);
 
   root.appendChild(container);
 }
