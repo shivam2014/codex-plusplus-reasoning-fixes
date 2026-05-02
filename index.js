@@ -229,13 +229,13 @@ function applyReasoningStyle(state, style) {
   const api = state.api;
 
   if (style === "expanded") {
-    // Remove max-height from all reasoning item body containers
+    // Remove max-height from the reasoning item body container only.
     // The ASAR ships with max-h-35 overflow-y-auto by default (Scroll baseline).
     // We inject a style that overrides it for Expanded mode.
     const styleEl = document.createElement("style");
     styleEl.id = "reasoning-fixes-expanded";
     styleEl.textContent = `
-      [class*="vertical-scroll-fade-mask"] {
+      [class~="vertical-scroll-fade-mask"][class~="max-h-35"] {
         max-height: none !important;
         overflow: visible !important;
       }
