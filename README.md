@@ -38,6 +38,42 @@ matcher is deliberately strict so failures are visible instead of silently wrong
 |---|---:|---|
 | **Keep output visible** | OFF | Tool output sections stay visible in the conversation. |
 
+## Installation
+
+```bash
+git clone https://github.com/shivam2014/codex-plusplus-reasoning-fixes.git \
+  ~/Library/Application\ Support/codex-plusplus/tweaks/co.shivam94.reasoning-fixes
+```
+
+For local development from an existing checkout, link it into the tweaks
+directory:
+
+```bash
+codexplusplus dev . --no-watch --replace
+```
+
+## Files
+
+```text
+co.shivam94.reasoning-fixes/
+├── manifest.json       # Codex++ tweak manifest
+├── index.js            # Renderer settings UI, CSS injection, fiber hook
+├── source-patcher.js   # Main-process protocol-wrapper and source transformer
+└── SITREP.md           # Architecture notes, patch inventory, compatibility model
+```
+
+## Patch Inventory
+
+| Setting or rule | Mechanism | Window reload needed |
+|---|---|---|
+| Keep accordion open | React fiber dispatch wrapper | No |
+| Show reasoning | Source patch on split-items and composer chunks | Automatic |
+| Reasoning display | CSS injection | No |
+| Disable thinking animation | Source patch plus CSS fallback | Automatic |
+| Disable streaming pulse | Source patch on composer chunk | Automatic |
+| Show file edits in chat | Source patch on split-items chunk | Automatic |
+| Keep output visible | Source patch on composer chunk | Automatic |
+
 ## Architecture
 
 ### How a source-backed setting change flows
@@ -130,42 +166,6 @@ Codex's stock CSS gives reasoning items `max-h-35 overflow-y-auto` (a 140px
 scroll box). Expanded mode overrides that with `max-height: none` via injected
 CSS. Scroll mode is Codex's unmodified baseline — the injected style is simply
 not applied.
-
-## Installation
-
-```bash
-git clone https://github.com/shivam2014/codex-plusplus-reasoning-fixes.git \
-  ~/Library/Application\ Support/codex-plusplus/tweaks/co.shivam94.reasoning-fixes
-```
-
-For local development from an existing checkout, link it into the tweaks
-directory:
-
-```bash
-codexplusplus dev . --no-watch --replace
-```
-
-## Files
-
-```text
-co.shivam94.reasoning-fixes/
-├── manifest.json       # Codex++ tweak manifest
-├── index.js            # Renderer settings UI, CSS injection, fiber hook
-├── source-patcher.js   # Main-process protocol-wrapper and source transformer
-└── SITREP.md           # Architecture notes, patch inventory, compatibility model
-```
-
-## Patch Inventory
-
-| Setting or rule | Mechanism | Window reload needed |
-|---|---|---|
-| Keep accordion open | React fiber dispatch wrapper | No |
-| Show reasoning | Source patch on split-items and composer chunks | Automatic |
-| Reasoning display | CSS injection | No |
-| Disable thinking animation | Source patch plus CSS fallback | Automatic |
-| Disable streaming pulse | Source patch on composer chunk | Automatic |
-| Show file edits in chat | Source patch on split-items chunk | Automatic |
-| Keep output visible | Source patch on composer chunk | Automatic |
 
 ## Acknowledgments
 
