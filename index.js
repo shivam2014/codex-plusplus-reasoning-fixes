@@ -451,7 +451,7 @@ const FEATURES = {
               if (hook.memoizedState === val) {
                 if (val === "collapsed") { try { hook.queue.dispatch("preview"); } catch(e) {} }
                 const orig = hook.queue.dispatch;
-                hook.queue.dispatch = (nv) => { if (nv === "collapsed") nv = "preview"; orig(nv); };
+                hook.queue.dispatch = (nv) => { if (nv === "collapsed" && !window.__reasoningFixesForceOverride) nv = "preview"; orig(nv); };
                 return;
               }
               hook = hook.next;
@@ -511,13 +511,46 @@ function setupCollapseAllButton(state) {
   function toggleAll() {
     collapsed = !collapsed;
     setIcon();
-    // Find reasoning headers: cursor-interaction with framer-motion next sibling
+    window.__reasoningFixesForceOverride = true;
+
+    // Tool calls (exploration accordions): fiber dispatch with override
+    window.__reasoningFixesForceOverride = true;
+    document.querySelectorAll('[data-testid="exploration-accordion-body"]').forEach(function(el) {
+      try {
+        var fiber = null;
+        try { fiber = api.react && api.react.getFiber(el); } catch(e2) {}
+        if (!fiber) {
+          var k = Object.keys(el).find(function(k) { return k.startsWith("__reactFiber$"); });
+          if (k) fiber = el[k];
+        }
+        if (!fiber) return;
+        var d = 0;
+        while (fiber && d < 30) {
+          var h = fiber.memoizedState;
+          while (h) {
+            var v = h.memoizedState;
+            if (v === "preview" || v === "collapsed" || v === "expanded") {
+              try { h.queue.dispatch(collapsed ? "collapsed" : "expanded"); } catch(e3) {}
+              return;
+            }
+            h = h.next;
+          }
+          fiber = fiber.return;
+          d++;
+        }
+      } catch(e4) {}
+    });
+    window.__reasoningFixesForceOverride = false;
+
+    // Reasoning headers: cursor-interaction with framer-motion next sibling
     document.querySelectorAll("[class*=cursor-interaction]").forEach(function(el) {
       var next = el.nextElementSibling;
       if (next && next.style && next.style.opacity !== "") {
         el.click();
       }
     });
+
+    window.__reasoningFixesForceOverride = false;
   }
 
   if (document.readyState === "loading") {
