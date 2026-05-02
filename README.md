@@ -26,6 +26,12 @@ matcher is deliberately strict so failures are visible instead of silently wrong
 | **Disable thinking animation** | ON | Keeps the "Thinking" label steady instead of pulsing. Immediate CSS fallback; full effect after reload. |
 | **Disable streaming pulse** | ON | Stops the color pulse on the reasoning text while it is actively streaming. Source-backed. |
 
+### Collapse
+
+| Option | Default | Effect |
+|---|---:|---|
+| **Show collapse/expand button** | ON | Adds a floating button to collapse or expand all reasoning items and tool calls at once. Uses a CSS class toggle on `<body>` — fast, no reload, and persists across re-renders. |
+
 ### File Edits
 
 | Option | Default | Effect |
@@ -57,9 +63,10 @@ codexplusplus dev . --no-watch --replace
 ```text
 co.shivam94.reasoning-fixes/
 ├── manifest.json       # Codex++ tweak manifest
-├── index.js            # Renderer settings UI, CSS injection, fiber hook
+├── index.js            # Renderer settings UI, CSS injection, fiber hook, collapse-all button
 ├── source-patcher.js   # Main-process protocol-wrapper and source transformer
-└── SITREP.md           # Architecture notes, patch inventory, compatibility model
+├── SITREP.md           # Architecture notes, patch inventory, compatibility model
+└── docs/images/        # Screenshots: settings page, expanded and collapsed reasoning
 ```
 
 ## Patch Inventory
@@ -69,6 +76,7 @@ co.shivam94.reasoning-fixes/
 | Keep accordion open | React fiber dispatch wrapper | No |
 | Show reasoning | Source patch on split-items and composer chunks | Automatic |
 | Reasoning display | CSS injection | No |
+| Collapse-all button | CSS class toggle on `<body>` via floating button | No |
 | Disable thinking animation | Source patch plus CSS fallback | Automatic |
 | Disable streaming pulse | Source patch on composer chunk | Automatic |
 | Show file edits in chat | Source patch on split-items chunk | Automatic |
@@ -128,6 +136,12 @@ so every `"collapsed"` call is rewritten to `"preview"`.
 **Reasoning display** — injects or removes a `<style>` element that
 overrides `max-h-35 overflow-y-auto` on the reasoning body container with
 `max-height: none !important`.
+
+**Collapse-all button** — injects a floating button into the DOM that
+toggles a CSS class (`rft-hide-all`) on `<body>`. A companion `<style>`
+element targets `.rft-hide-all .ds-group` to collapse all reasoning and
+tool-call accordions. No React fiber or source-patching involved — pure
+DOM + CSS, so it is instant and survives any re-render.
 
 ## Source Patches
 
