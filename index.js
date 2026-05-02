@@ -69,6 +69,9 @@ module.exports = {
       });
     }
 
+    // Floating collapse/expand all button
+    setupCollapseAllButton(state);
+
     // Activate live features
     rendererState.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
     applyReasoningStyle(state, rendererState.reasoningStyle);
@@ -95,6 +98,7 @@ module.exports = {
     }
     s.cssInjections.clear();
     s.sourceStatusSubscribers?.clear();
+    if (s._collapseCleanup) { try { s._collapseCleanup(); } catch(e) {} }
     settingsPageHandle?.unregister();
     settingsPageHandle = null;
     rendererState = null;
@@ -467,6 +471,68 @@ const FEATURES = {
     return () => { disposed = true; };
   },
 };
+
+// ──────────────────────────────────────────────── collapse-all button ──
+
+function setupCollapseAllButton(state) {
+  const api = state.api;
+  let collapsed = false;
+  let btn = null;
+  let styleEl = null;
+
+  function addStyle() {
+    if (document.getElementById("rft-css")) return;
+    styleEl = document.createElement("style");
+    styleEl.id = "rft-css";
+    styleEl.textContent = "#rft-btn{position:fixed;bottom:24px;right:24px;z-index:9999;width:40px;height:40px;border-radius:50%;border:1px solid rgba(255,255,255,0.12);background:#1e1e1e;color:#ccc;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.4);opacity:0.5;transition:opacity 0.2s,transform 0.2s}#rft-btn:hover{opacity:1;transform:scale(1.05)}#rft-btn svg{width:20px;height:20px}";
+    document.head.appendChild(styleEl);
+  }
+
+  function makeBtn() {
+    addStyle();
+    btn = document.createElement("button");
+    btn.id = "rft-btn";
+    setIcon();
+    btn.onclick = toggleAll;
+    document.body.appendChild(btn);
+  }
+
+  function setIcon() {
+    if (!btn) return;
+    if (collapsed) {
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 13 12 18 17 13"/><polyline points="7 6 12 11 17 6"/></svg>';
+      btn.title = "Expand all";
+    } else {
+      btn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 11 12 6 7 11"/><polyline points="17 18 12 13 7 18"/></svg>';
+      btn.title = "Collapse all";
+    }
+  }
+
+  function toggleAll() {
+    collapsed = !collapsed;
+    setIcon();
+    // Find reasoning headers: cursor-interaction with framer-motion next sibling
+    document.querySelectorAll("[class*=cursor-interaction]").forEach(function(el) {
+      var next = el.nextElementSibling;
+      if (next && next.style && next.style.opacity !== "") {
+        el.click();
+      }
+    });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", makeBtn);
+  } else {
+    setTimeout(makeBtn, 1500);
+  }
+
+  // Cleanup for stop()
+  rendererState._collapseCleanup = function() {
+    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+    var s = document.getElementById("rft-css");
+    if (s && s.parentNode) s.parentNode.removeChild(s);
+  };
+}
 
 // ─────────────────────────────────────────────────────── main process ──
 
