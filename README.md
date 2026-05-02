@@ -66,7 +66,7 @@ co.shivam94.reasoning-fixes/
 ├── index.js            # Renderer settings UI, CSS injection, fiber hook, collapse-all button
 ├── source-patcher.js   # Main-process protocol-wrapper and source transformer
 ├── SITREP.md           # Architecture notes, patch inventory, compatibility model
-└── docs/screenshots/        # Screenshots: settings page, expanded and collapsed reasoning
+└── screenshots/        # Screenshots: settings page, expanded and collapsed reasoning
 ```
 
 ## Patch Inventory
