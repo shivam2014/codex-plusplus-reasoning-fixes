@@ -119,5 +119,8 @@ co.shivam94.reasoning-fixes/
 
 - **Codex++** ([b-nnett/codex-plusplus](https://github.com/b-nnett/codex-plusplus)) -
   tweak runtime, settings injection, IPC, and React fiber introspection API.
+- **Alex Naidis** ([TheCrazyLex](https://github.com/TheCrazyLex)) —
+  in-memory protocol-level source patching architecture that replaced the
+  ASAR rewrite approach.
 - **Original patch** ([andrew-kramer-inno's gist](https://gist.github.com/andrew-kramer-inno/3fa1063b967cfad2bc6f7cd9af1249fd)) -
   inspiration for the source transformations.
