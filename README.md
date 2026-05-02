@@ -23,6 +23,12 @@ Codex++ storage.
 | **Reasoning display** | Expanded | Live CSS. **Expanded** removes Codex's internal reasoning scroll box. **Scroll** restores the compact reasoning box. |
 | **Disable thinking animation** | ON | Source-backed with an immediate CSS fallback. Keeps the Thinking label steady instead of pulsing. |
 
+### File Edits
+
+| Option | Default | Effect |
+|---|---:|---|
+| **Show file edits in chat** | ON | Source-backed. File-edit cards stay as standalone main-chat items instead of being grouped into collapsed tool activity. |
+
 ### Tool Outputs
 
 | Option | Default | Effect |
@@ -62,6 +68,7 @@ source-backed rules:
 - keep reasoning expanded after thinking completes
 - start reasoning expanded
 - keep the agent item body expanded above the assistant response
+- keep file-edit cards out of collapsed tool activity
 - optionally disable the thinking shimmer
 - disable streaming blink
 
@@ -105,6 +112,7 @@ co.shivam94.reasoning-fixes/
 | Show reasoning | Source patch on split-items and composer chunks | Automatic |
 | Reasoning display | CSS injection | No |
 | Disable thinking animation | Source patch plus CSS fallback | Automatic |
+| Show file edits in chat | Source patch on split-items chunk | Automatic |
 | Keep output visible | Source patch on composer chunk | Automatic |
 
 ## Acknowledgments

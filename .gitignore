@@ -5,3 +5,9 @@ source/
 .DS_Store
 *.pyc
 __pycache__/
+
+# Extracted Codex app snapshots and generated renderer chunks.
+/package.json
+/composer-*.js
+/split-items-into-render-groups-*.js
+/thinking-shimmer-*.js
