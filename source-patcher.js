@@ -18,6 +18,8 @@ const SETTING_FEATURES = {
     "reasoning-start-expanded",
     "reasoning-no-blink",
     "keep-agent-expanded",
+    "no-layout-position",
+
   ],
   "disable-shimmer": ["disable-shimmer"],
   "disable-streaming-pulse": ["shimmer-no-fade-in"],
@@ -91,6 +93,15 @@ const PATCHES = {
     patched: /e\.type===`exploration`\?!0:e\.type===`patch`\?!1:e\.type===`exec`/,
     replacement: "e.type===`exploration`?!0:e.type===`patch`?!1:e.type===`exec`",
   },
+  "no-layout-position": {
+    name: "remove_layout_position_from_entry_divs",
+    bundle: "composer",
+    unpatched: /layout:`position`,exit:\{opacity:0,height:0\},transition:Fc,style:\{overflow:`hidden`\},children:l\}/,
+    patched: /(?<!layout:`position`,)exit:\{opacity:0,height:0\},transition:Fc,style:\{overflow:`hidden`\},children:l\}/,
+    replacement: "exit:{opacity:0,height:0},transition:Fc,style:{overflow:`hidden`},children:l}",
+  },
+
+
 };
 
 function startReasoningFixesMain(api) {
