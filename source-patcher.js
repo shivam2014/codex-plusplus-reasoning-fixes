@@ -6,25 +6,15 @@ const DEFAULTS = {
   "show-reasoning": true,
   "disable-shimmer": true,
   "show-file-edits": true,
-  "show-tool-outputs": false,
-  "disable-streaming-pulse": true,
 };
 
 const SETTING_FEATURES = {
   "show-reasoning": [
     "show-reasoning",
-    "render-standalone-reasoning",
-    "reasoning-no-autocollapse",
-    "reasoning-start-expanded",
-    "reasoning-no-blink",
-    "keep-agent-expanded",
-    "no-layout-position",
 
   ],
   "disable-shimmer": ["disable-shimmer"],
-  "disable-streaming-pulse": ["shimmer-no-fade-in"],
   "show-file-edits": ["file-edits-no-tool-group"],
-  "show-tool-outputs": ["keep-agent-expanded"],
 };
 
 const PATCHES = {
@@ -35,54 +25,12 @@ const PATCHES = {
     patched: /if\(t\.type===`reasoning`\)\{i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}/,
     replacement: "if(t.type===`reasoning`){i&&s(`explored`);r.push({kind:`item`,item:t});continue}",
   },
-  "render-standalone-reasoning": {
-    name: "agent_item_render_reasoning_via_default_renderer",
-    bundle: "composer",
-    unpatched: /\}else if\(e\.type===`reasoning`\)k=null;else\{let n;t\[36\]!==a/,
-    patched: /\}else\{let n;t\[36\]!==a/,
-    replacement: "}else{let n;t[36]!==a",
-  },
-  "reasoning-no-autocollapse": {
-    name: "reasoning_no_autocollapse_on_finish",
-    bundle: "composer",
-    unpatched: /if\(!o\)\{S\(!1\);return\}/,
-    patched: /if\(!o\)\{return\}/,
-    replacement: "if(!o){return}",
-  },
-  "reasoning-start-expanded": {
-    name: "reasoning_start_expanded_useState",
-    bundle: "composer",
-    unpatched: /\[d,f\]=\(0,Z\.useState\)\(o\),p=!o/,
-    patched: /\[d,f\]=\(0,Z\.useState\)\(!0\),p=!o/,
-    replacement: "[d,f]=(0,Z.useState)(!0),p=!o",
-  },
-  "keep-agent-expanded": {
-    name: "keep_agent_body_expanded",
-    bundle: "composer",
-    unpatched: /at=it\?\$e:!1/,
-    patched: /at=!1/,
-    replacement: "at=!1",
-  },
   "disable-shimmer": {
     name: "disable_thinking_shimmer",
     bundle: "shimmer",
     unpatched: /!\((\w+)===void 0\|\|\1\)/,
     patched: /,true\)\{/,
     replacement: "true",
-  },
-  "shimmer-no-fade-in": {
-    name: "disable_reasoning_fade_in_during_stream",
-    bundle: "composer",
-    unpatched: /fadeType:\w+\?`indexed`:`none`/,
-    patched: /fadeType:`none`/,
-    replacement: "fadeType:`none`",
-  },
-  "reasoning-no-blink": {
-    name: "reasoning_no_blink_during_stream",
-    bundle: "composer",
-    unpatched: /g=o\?\!\!h:d/,
-    patched: /g=o\?\!0:d/,
-    replacement: "g=o?!0:d",
   },
   "file-edits-no-tool-group": {
     name: "file_edits_not_collapsed_tool_activity",
@@ -93,15 +41,6 @@ const PATCHES = {
     patched: /e\.type===`exploration`\?!0:e\.type===`patch`\?!1:e\.type===`exec`/,
     replacement: "e.type===`exploration`?!0:e.type===`patch`?!1:e.type===`exec`",
   },
-  "no-layout-position": {
-    name: "remove_layout_position_from_entry_divs",
-    bundle: "composer",
-    unpatched: /layout:`position`,exit:\{opacity:0,height:0\},transition:Fc,style:\{overflow:`hidden`\},children:l\}/,
-    patched: /(?<!layout:`position`,)exit:\{opacity:0,height:0\},transition:Fc,style:\{overflow:`hidden`\},children:l\}/,
-    replacement: "exit:{opacity:0,height:0},transition:Fc,style:{overflow:`hidden`},children:l}",
-  },
-
-
 };
 
 function startReasoningFixesMain(api) {
