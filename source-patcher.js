@@ -18,7 +18,6 @@ const SETTING_FEATURES = {
     "reasoning-start-expanded",
     "reasoning-no-blink",
     "keep-agent-expanded",
-    "preserve-item-order",
   ],
   "disable-shimmer": ["disable-shimmer"],
   "disable-streaming-pulse": ["shimmer-no-fade-in"],
@@ -61,13 +60,6 @@ const PATCHES = {
     unpatched: /at=it\?\$e:!1/,
     patched: /at=!1/,
     replacement: "at=!1",
-  },
-  "preserve-item-order": {
-    name: "preserve_item_order_in_at_function",
-    bundle: "split-items",
-    unpatched: /_am\.length>0&&_am\.length<r\.length/,
-    patched: /0<_am\.length&&_am\.length<r\.length&&r\[0\]\.kind===`item`&&r\[0\]\.item\.type===`assistant-message`/,
-    replacement: "0<_am.length&&_am.length<r.length&&r[0].kind===`item`&&r[0].item.type===`assistant-message`",
   },
   "disable-shimmer": {
     name: "disable_thinking_shimmer",
