@@ -19,7 +19,6 @@ const SETTING_FEATURES = {
     "reasoning-no-autocollapse",
     "reasoning-no-blink",
     "no-layout-position",
-    "no-layout-position-composer",
     "reasoning-no-blink-fade",
     "reasoning-no-animate-height",
     "fix-assistant-order",
@@ -85,13 +84,6 @@ const PATCHES = {
     patched: /layout:!1,/,
     replacement: "layout:!1,",
   },
-  "no-layout-position-composer": {
-    name: "framer_motion_layout_position_off_composer",
-    bundle: "composer",
-    unpatched: /layout:`position`,/,
-    patched: /layout:!1,/,
-    replacement: "layout:!1,",
-  },
   "reasoning-no-blink-fade": {
     name: "reasoning_no_blink_markdown_fade",
     bundle: "thread",
@@ -131,16 +123,16 @@ const PATCHES = {
   },
   "auto-expand-exec": {
     name: "auto_expand_exec_shells_by_default",
-    bundle: "lt",
+    bundle: "thread",
     unpatched: /defaultExpandExecShell:\w+!==[^,}]+/,
     patched: /defaultExpandExecShell:!0/,
     replacement: "defaultExpandExecShell:!0",
   },
   "expand-tool-activity": {
     name: "expand_tool_activity_sections",
-    bundle: "settings-page",
-    unpatched: /defaultExpanded:!1,onExpand:/,
-    patched: /defaultExpanded:!0,onExpand:/,
+    bundle: "thread",
+    unpatched: /defaultExpanded:!1,onExpand:/g,
+    patched: /defaultExpanded:!0,onExpand:/g,
     replacement: "defaultExpanded:!0,onExpand:",
   },
 };
@@ -338,7 +330,7 @@ function patchSource(state, rawUrl, source, bundle) {
 function inspectRule(source, rule) {
   const unpatchedCount = countMatches(source, rule.unpatched);
   const patchedCount = countMatches(source, rule.patched);
-  if (unpatchedCount === 1 && patchedCount === 0) return "not_applied";
+  if (unpatchedCount >= 1 && patchedCount === 0) return "not_applied";
   if (unpatchedCount === 0 && patchedCount >= 1) return "already";
   if (unpatchedCount === 0 && patchedCount === 0) return "unsupported";
   return "mixed";
