@@ -34,7 +34,7 @@ const PATCHES = {
     bundle: "split-items",
     unpatched: /if\(t\.type===`reasoning`\)\{i&&i\.push\(t\);continue\}/,
     patched: /if\(t\.type===`reasoning`\)\{i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}/,
-    replacement: "if(t.type===`reasoning`){i&&s(`explored`);r.push({kind:`item`,item:t});continue}",
+    replacement: "if(t.type===`reasoning`){console.log('[reasoning-fixes:Ge] reasoning item standalone',t.type);i&&s(`explored`);r.push({kind:`item`,item:t});continue}",
   },
   "disable-shimmer": {
     name: "disable_thinking_shimmer",
@@ -104,14 +104,14 @@ const PATCHES = {
     bundle: "split-items",
     unpatched: /function (\w+)\(e\)\{return e\.type!==`exec`\|\|e\.parsedCmd\.type===`read`&&!e\.parsedCmd\.isFinished&&\w+\(\{summary:e\.parsedCmd,cwd:e\.cwd\}\)\?!1:e\.parsedCmd\.type===`list_files`\|\|e\.parsedCmd\.type===`search`\|\|e\.parsedCmd\.type===`read`\}/,
     patched: /function \w+\(e\)\{return false\}/,
-    replacement: "function $1(e){return false}",
+    replacement: "function $1(e){console.log('[reasoning-fixes:Ke] exploration item prevented');return false}",
   },
   "fix-assistant-order": {
     name: "find_assistant_anywhere_in_agent_items",
     bundle: "split-items",
     unpatched: /D=E\[E\.length-1\],O=Xe\(D\)\?D:null,k=\(O\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!O\?\.structuredOutput;O\?\(E\.pop\(\),g\.push\(\.\.\.T\)\):E\.push\(\.\.\.T\);/,
     patched: /let O=null;for\(let i=E\.length-1;i>=0;--i\)if\(Xe\(E\[i\]\)\)\{O=E\.splice\(i,1\)\[0\];break\}/,
-    replacement: "let O=null;for(let i=E.length-1;i>=0;--i)if(Xe(E[i])){O=E.splice(i,1)[0];break}let k=(O?.content?.trim().length??0)>0||!!O?.structuredOutput;O?g.push(...T):E.push(...T);",
+    replacement: "try{O=null;for(let i=E.length-1;i>=0;--i)if(Xe(E[i])){O=E.splice(i,1)[0];break}let k=(O?.content?.trim().length??0)>0||!!O?.structuredOutput;O?g.push(...T):E.push(...T);}catch(e){console.error('[reasoning-fixes:qe]',e);O=null;k=0;g.push(...T);}",
   },
   "file-edits-no-tool-group": {
     name: "file_edits_not_collapsed_tool_activity",
@@ -165,7 +165,11 @@ function installProtocolPatch(state) {
       let originalText = null;
       try {
         originalText = await response.text();
+        state.api.log.info("[reasoning-fixes] patching " + bundle + " bundle (" + originalText.length + " bytes)");
         const result = patchSource(state, request.url, originalText, bundle);
+        if (result.changed) {
+          state.api.log.info("[reasoning-fixes] " + bundle + " bundle changed: " + originalText.length + " -> " + result.text.length + " bytes");
+        }
         const headers = new Headers(response.headers);
         headers.delete("content-length");
         headers.set("content-type", "text/javascript; charset=utf-8");
