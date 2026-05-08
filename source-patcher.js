@@ -21,6 +21,7 @@ const SETTING_FEATURES = {
     "reasoning-no-animate-height",
     "fix-assistant-order",
     "auto-expand-exec",
+    "expand-tool-activity",
   ],
   "show-exploration-items": [
     "show-exploration-items",
@@ -129,6 +130,13 @@ const PATCHES = {
     unpatched: /defaultExpandExecShell:r!==Qa/,
     patched: /defaultExpandExecShell:!0/,
     replacement: "defaultExpandExecShell:!0",
+  },
+  "expand-tool-activity": {
+    name: "expand_tool_activity_sections",
+    bundle: "thread",
+    unpatched: /defaultExpanded:!1,onExpand:/,
+    patched: /defaultExpanded:!0,onExpand:/,
+    replacement: "defaultExpanded:!0,onExpand:",
   },
 };
 
