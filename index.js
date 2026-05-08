@@ -51,9 +51,7 @@ module.exports = {
         "show-exploration-items": true,
         "auto-expand-exec": true,
         "expand-tool-activity": true,
-        "show-tool-outputs": false,
         "collapse-all-toggle": true,
-        "disable-streaming-pulse": true,
       },
     };
     rendererState = state;
@@ -159,13 +157,6 @@ function renderSettings(root, state) {
     source: true,
   }));
 
-  rsnCard.appendChild(featureRow(state, {
-    id: "disable-streaming-pulse",
-    label: "Disable streaming pulse",
-    desc: "Stops the color pulse on the reasoning text while it is actively streaming.",
-    source: true,
-  }));
-
   rsnSection.appendChild(rsnCard);
   container.appendChild(rsnSection);
 
@@ -192,18 +183,6 @@ function renderSettings(root, state) {
   }));
   explSection.appendChild(explCard);
   container.appendChild(explSection);
-
-  const tlSection = el("section", "flex flex-col gap-2");
-  tlSection.appendChild(sectionTitle("Tool Output"));
-  const tlCard = roundedCard();
-  tlCard.appendChild(featureRow(state, {
-    id: "show-tool-outputs",
-    label: "Keep output visible",
-    desc: "Leaves command and tool results open in the chat.",
-    source: true,
-  }));
-  tlSection.appendChild(tlCard);
-  container.appendChild(tlSection);
 
   const caSection = el("section", "flex flex-col gap-2");
   caSection.appendChild(sectionTitle("Collapse All"));
@@ -576,7 +555,7 @@ function writeFlag(api, id, on) { api.storage.set(`feature:${id}`, !!on); }
 async function syncSourceBackedSettings(state) {
   try {
     const values = {};
-    for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs", "show-exploration-items"]) {
+    for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-exploration-items"]) {
       values[id] = readFlag(state.api, id, state.defaults[id] === true);
     }
     const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
@@ -610,7 +589,7 @@ async function setSourceFeature(state, id, value) {
 }
 
 function syncRendererFlagsFromSourceStatus(state, settings) {
-  for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs", "show-exploration-items"]) {
+  for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-exploration-items"]) {
     if (typeof settings[id] === "boolean") writeFlag(state.api, id, settings[id]);
   }
 }
