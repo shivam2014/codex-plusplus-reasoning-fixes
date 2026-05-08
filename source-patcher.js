@@ -127,8 +127,8 @@ const PATCHES = {
     name: "auto_expand_exec_shells_by_default",
     bundle: "thread",
     unpatched: /defaultExpandExecShell:r!==Qa/,
-    patched: /__REASONING_FIXES_AUTO_EXPAND_TRUE__/,
-    replacement: "__REASONING_FIXES_AUTO_EXPAND_TRUE__",
+    patched: /defaultExpandExecShell:!0/,
+    replacement: "defaultExpandExecShell:!0",
   },
 };
 
@@ -224,8 +224,7 @@ function installProtocolPatch(state) {
   };
   
   // If there are existing windows, reload them to apply patches
-  // Handle both app://- and about:blank windows  
-  // Use cache-busting URL parameter to force fresh protocol handler responses
+  // Handle both app://- and about:blank windows
   try {
     const { BrowserWindow } = require("electron");
     for (const window of BrowserWindow.getAllWindows()) {
@@ -233,13 +232,7 @@ function installProtocolPatch(state) {
       const url = window.webContents.getURL();
       if (url.startsWith("app://-/") || url === "about:blank") {
         state.api.log.info("[reasoning-fixes] reloading window for new patches, url=" + url);
-        // Navigate to app URL with cache-busting parameter to force fresh bundle requests
-        if (url.startsWith("app://-/")) {
-          const cacheUrl = url + (url.includes("?") ? "&" : "?") + "rf=" + Date.now();
-          window.webContents.loadURL(cacheUrl);
-        } else {
-          window.webContents.reloadIgnoringCache();
-        }
+        window.webContents.reloadIgnoringCache();
       }
     }
   } catch(e) {
