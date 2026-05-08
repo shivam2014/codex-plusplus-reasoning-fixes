@@ -20,6 +20,7 @@ const SETTING_FEATURES = {
     "reasoning-no-blink-fade",
     "reasoning-no-animate-height",
     "fix-assistant-order",
+    "auto-expand-exec",
   ],
   "show-exploration-items": [
     "show-exploration-items",
@@ -111,7 +112,7 @@ const PATCHES = {
     bundle: "split-items",
     unpatched: /D=E\[E\.length-1\],O=Xe\(D\)\?D:null,k=\(O\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!O\?\.structuredOutput;O\?\(E\.pop\(\),g\.push\(\.\.\.T\)\):E\.push\(\.\.\.T\);/,
     patched: /let O=null;for\(let i=E\.length-1;i>=0;--i\)if\(Xe\(E\[i\]\)\)\{O=E\.splice\(i,1\)\[0\];break\}/,
-    replacement: "try{O=null;for(let i=E.length-1;i>=0;--i)if(Xe(E[i])){O=E.splice(i,1)[0];break}let k=(O?.content?.trim().length??0)>0||!!O?.structuredOutput;O?g.push(...T):E.push(...T);}catch(e){console.error('[reasoning-fixes:qe]',e);O=null;k=0;g.push(...T);}",
+    replacement: "O=null;for(let i=E.length-1;i>=0;--i)if(Xe(E[i])){O=E.splice(i,1)[0];break}let k=(O?.content?.trim().length??0)>0||!!O?.structuredOutput;O?g.push(...T):E.push(...T);",
   },
   "file-edits-no-tool-group": {
     name: "file_edits_not_collapsed_tool_activity",
@@ -125,7 +126,12 @@ const PATCHES = {
 };
 
 function startReasoningFixesMain(api) {
-  const state = globalThis[STATE_KEY] || {
+  // Reset state on each start to ensure protocol handler re-installs
+  const old = globalThis[STATE_KEY];
+  if (old && old.disposeProtocol) {
+    try { old.disposeProtocol(); } catch(e) {}
+  }
+  const state = {
     protocolPatched: false,
     observations: Object.create(null),
     patchedAssets: new Set(),
@@ -202,11 +208,29 @@ function installProtocolPatch(state) {
 
   state.protocolPatched = true;
   state.disposeProtocol = () => {
-    if (protocol.handle === reasoningFixesProtocolHandle) {
-      protocol.handle = originalHandle;
-    }
+    try {
+      if (protocol.handle === reasoningFixesProtocolHandle) {
+        protocol.handle = originalHandle;
+      }
+    } catch(e) {}
     state.protocolPatched = false;
   };
+  
+  // If there are existing windows, reload them to apply patches
+  // Handle both app://- and about:blank windows
+  try {
+    const { BrowserWindow } = require("electron");
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (window.isDestroyed()) continue;
+      const url = window.webContents.getURL();
+      if (url.startsWith("app://-/") || url === "about:blank") {
+        state.api.log.info("[reasoning-fixes] reloading window for new patches, url=" + url);
+        window.webContents.reloadIgnoringCache();
+      }
+    }
+  } catch(e) {
+    // Ignore errors during reload (windows may not exist yet)
+  }
 }
 
 function installIpc(state) {
