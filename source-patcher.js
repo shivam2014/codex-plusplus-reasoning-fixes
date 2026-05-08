@@ -123,6 +123,13 @@ const PATCHES = {
     patched: /e\.type===`exploration`\?!0:e\.type===`patch`\?!1:e\.type===`exec`/,
     replacement: "e.type===`exploration`?!0:e.type===`patch`?!1:e.type===`exec`",
   },
+  "auto-expand-exec": {
+    name: "auto_expand_exec_shells_by_default",
+    bundle: "thread",
+    unpatched: /defaultExpandExecShell:r!==Qa/,
+    patched: /defaultExpandExecShell:!0/,
+    replacement: "defaultExpandExecShell:!0",
+  },
 };
 
 function startReasoningFixesMain(api) {
