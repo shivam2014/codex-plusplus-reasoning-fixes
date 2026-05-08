@@ -6,12 +6,23 @@ const DEFAULTS = {
   "show-reasoning": true,
   "disable-shimmer": true,
   "show-file-edits": true,
+  "show-exploration-items": true,
 };
 
 const SETTING_FEATURES = {
   "show-reasoning": [
     "show-reasoning",
-
+    "render-standalone-reasoning",
+    "reasoning-start-expanded",
+    "reasoning-no-autocollapse",
+    "reasoning-no-blink",
+    "no-layout-position",
+    "reasoning-no-blink-fade",
+    "reasoning-no-animate-height",
+    "fix-assistant-order",
+  ],
+  "show-exploration-items": [
+    "show-exploration-items",
   ],
   "disable-shimmer": ["disable-shimmer"],
   "show-file-edits": ["file-edits-no-tool-group"],
@@ -31,6 +42,76 @@ const PATCHES = {
     unpatched: /!\((\w+)===void 0\|\|\1\)/,
     patched: /,true\)\{/,
     replacement: "true",
+  },
+  "render-standalone-reasoning": {
+    name: "agent_item_render_reasoning_via_default_renderer",
+    bundle: "thread",
+    unpatched: /}else if\(e\.type===`reasoning`\)F=null;/,
+    patched: /}else if\(false\){}/,
+    replacement: "}else if(false){}",
+  },
+  "reasoning-start-expanded": {
+    name: "reasoning_start_expanded_useState",
+    bundle: "thread",
+    unpatched: /\[d,f\]=\(0,Q\.useState\)\(o\)/,
+    patched: /\[d,f\]=\(0,Q\.useState\)\(!0\)/,
+    replacement: "[d,f]=(0,Q.useState)(!0)",
+  },
+  "reasoning-no-autocollapse": {
+    name: "reasoning_no_autocollapse_on_finish",
+    bundle: "thread",
+    unpatched: /if\(!o\)\{S\(!1\);return\}/,
+    patched: /if\(!o\)\{return\}/,
+    replacement: "if(!o){return}",
+  },
+  "reasoning-no-blink": {
+    name: "reasoning_no_blink_during_stream",
+    bundle: "thread",
+    unpatched: /g=o\?!!h:d/,
+    patched: /g=o\?!0:d/,
+    replacement: "g=o?!0:d",
+  },
+  "no-layout-position": {
+    name: "framer_motion_layout_position_off_thread",
+    bundle: "thread",
+    unpatched: /layout:`position`,/,
+    patched: /layout:!1,/,
+    replacement: "layout:!1,",
+  },
+  "no-layout-position-composer": {
+    name: "framer_motion_layout_position_off_composer",
+    bundle: "composer",
+    unpatched: /layout:`position`,/,
+    patched: /layout:!1,/,
+    replacement: "layout:!1,",
+  },
+  "reasoning-no-blink-fade": {
+    name: "reasoning_no_blink_markdown_fade",
+    bundle: "thread",
+    unpatched: /fadeType:o\?`indexed`:`none`/,
+    patched: /fadeType:`none`/,
+    replacement: "fadeType:`none`",
+  },
+  "reasoning-no-animate-height": {
+    name: "reasoning_no_height_transition",
+    bundle: "thread",
+    unpatched: /initial:!1,animate:P,transition:yo/,
+    patched: /initial:!1,animate:P,transition:{duration:0}/,
+    replacement: "initial:!1,animate:P,transition:{duration:0}",
+  },
+  "show-exploration-items": {
+    name: "exploration_items_as_standalone",
+    bundle: "split-items",
+    unpatched: /function (\w+)\(e\)\{return e\.type!==`exec`\|\|e\.parsedCmd\.type===`read`&&!e\.parsedCmd\.isFinished&&\w+\(\{summary:e\.parsedCmd,cwd:e\.cwd\}\)\?!1:e\.parsedCmd\.type===`list_files`\|\|e\.parsedCmd\.type===`search`\|\|e\.parsedCmd\.type===`read`\}/,
+    patched: /function \w+\(e\)\{return false\}/,
+    replacement: "function $1(e){return false}",
+  },
+  "fix-assistant-order": {
+    name: "find_assistant_anywhere_in_agent_items",
+    bundle: "split-items",
+    unpatched: /D=E\[E\.length-1\],O=Xe\(D\)\?D:null,k=\(O\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!O\?\.structuredOutput;O\?\(E\.pop\(\),g\.push\(\.\.\.T\)\):E\.push\(\.\.\.T\);/,
+    patched: /let O=null;for\(let i=E\.length-1;i>=0;--i\)if\(Xe\(E\[i\]\)\)\{O=E\.splice\(i,1\)\[0\];break\}/,
+    replacement: "let O=null;for(let i=E.length-1;i>=0;--i)if(Xe(E[i])){O=E.splice(i,1)[0];break}let k=(O?.content?.trim().length??0)>0||!!O?.structuredOutput;O?g.push(...T):E.push(...T);",
   },
   "file-edits-no-tool-group": {
     name: "file_edits_not_collapsed_tool_activity",
@@ -303,6 +384,7 @@ function bundleForUrl(rawUrl) {
   if (/^composer-[A-Za-z0-9_-]+\.js$/.test(basename)) return "composer";
   if (/^split-items-into-render-groups-[A-Za-z0-9_-]+\.js$/.test(basename)) return "split-items";
   if (/^thinking-shimmer-[A-Za-z0-9_-]+\.js$/.test(basename)) return "shimmer";
+  if (/^local-conversation-thread-[A-Za-z0-9_-]+\.js$/.test(basename)) return "thread";
   return null;
 }
 

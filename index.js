@@ -48,6 +48,7 @@ module.exports = {
         "disable-shimmer": true,
         "reasoning-style": "expanded",  // "expanded" or "scroll"
         "show-file-edits": true,
+        "show-exploration-items": true,
         "show-tool-outputs": false,
         "collapse-all-toggle": true,
         "disable-streaming-pulse": true,
@@ -177,6 +178,18 @@ function renderSettings(root, state) {
   }));
   fileEditSection.appendChild(fileEditCard);
   container.appendChild(fileEditSection);
+
+  const explSection = el("section", "flex flex-col gap-2");
+  explSection.appendChild(sectionTitle("Exploration Items"));
+  const explCard = roundedCard();
+  explCard.appendChild(featureRow(state, {
+    id: "show-exploration-items",
+    label: "Show exploration details",
+    desc: "Show individual exploration file commands (read, list, search) instead of collapsing them into summaries.",
+    source: true,
+  }));
+  explSection.appendChild(explCard);
+  container.appendChild(explSection);
 
   const tlSection = el("section", "flex flex-col gap-2");
   tlSection.appendChild(sectionTitle("Tool Output"));
@@ -561,7 +574,7 @@ function writeFlag(api, id, on) { api.storage.set(`feature:${id}`, !!on); }
 async function syncSourceBackedSettings(state) {
   try {
     const values = {};
-    for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs"]) {
+    for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs", "show-exploration-items"]) {
       values[id] = readFlag(state.api, id, state.defaults[id] === true);
     }
     const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
@@ -595,7 +608,7 @@ async function setSourceFeature(state, id, value) {
 }
 
 function syncRendererFlagsFromSourceStatus(state, settings) {
-  for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs"]) {
+  for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs", "show-exploration-items"]) {
     if (typeof settings[id] === "boolean") writeFlag(state.api, id, settings[id]);
   }
 }
