@@ -49,6 +49,8 @@ module.exports = {
         "reasoning-style": "expanded",  // "expanded" or "scroll"
         "show-file-edits": true,
         "show-exploration-items": true,
+        "auto-expand-exec": true,
+        "expand-tool-activity": true,
         "show-tool-outputs": false,
         "collapse-all-toggle": true,
         "disable-streaming-pulse": true,

@@ -7,6 +7,8 @@ const DEFAULTS = {
   "disable-shimmer": true,
   "show-file-edits": true,
   "show-exploration-items": true,
+  "auto-expand-exec": true,
+  "expand-tool-activity": true,
 };
 
 const SETTING_FEATURES = {
@@ -26,6 +28,8 @@ const SETTING_FEATURES = {
   "show-exploration-items": [
     "show-exploration-items",
   ],
+  "auto-expand-exec": ["auto-expand-exec"],
+  "expand-tool-activity": ["expand-tool-activity"],
   "disable-shimmer": ["disable-shimmer"],
   "show-file-edits": ["file-edits-no-tool-group"],
 };
@@ -127,7 +131,7 @@ const PATCHES = {
   "auto-expand-exec": {
     name: "auto_expand_exec_shells_by_default",
     bundle: "thread",
-    unpatched: /defaultExpandExecShell:r!==Qa/,
+    unpatched: /defaultExpandExecShell:\w+!==[^,}]+/,
     patched: /defaultExpandExecShell:!0/,
     replacement: "defaultExpandExecShell:!0",
   },
