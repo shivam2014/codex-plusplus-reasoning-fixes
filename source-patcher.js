@@ -130,14 +130,14 @@ const PATCHES = {
   },
   "auto-expand-exec": {
     name: "auto_expand_exec_shells_by_default",
-    bundle: "thread",
+    bundle: "lt",
     unpatched: /defaultExpandExecShell:\w+!==[^,}]+/,
     patched: /defaultExpandExecShell:!0/,
     replacement: "defaultExpandExecShell:!0",
   },
   "expand-tool-activity": {
     name: "expand_tool_activity_sections",
-    bundle: "thread",
+    bundle: "settings-page",
     unpatched: /defaultExpanded:!1,onExpand:/,
     patched: /defaultExpanded:!0,onExpand:/,
     replacement: "defaultExpanded:!0,onExpand:",
@@ -431,6 +431,8 @@ function bundleForUrl(rawUrl) {
   if (/^composer-[A-Za-z0-9_-]+\.js$/.test(basename)) return "composer";
   if (/^split-items-into-render-groups-[A-Za-z0-9_-]+\.js$/.test(basename)) return "split-items";
   if (/^thinking-shimmer-[A-Za-z0-9_-]+\.js$/.test(basename)) return "shimmer";
+  if (/^lt-[A-Za-z0-9_-]+\.js$/.test(basename)) return "lt";
+  if (/^local-environments-settings-page-[A-Za-z0-9_-]+\.js$/.test(basename)) return "settings-page";
   if (/^local-conversation-thread-[A-Za-z0-9_-]+\.js$/.test(basename)) return "thread";
   return null;
 }
