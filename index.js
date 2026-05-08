@@ -72,9 +72,7 @@ module.exports = {
     }
 
     // Floating collapse/expand all button
-    if (readFlag(state.api, "collapse-all-toggle", true)) {
-      setupCollapseAllButton(state);
-    }
+    setupCollapseAllButton(state);
 
     // Activate live features
     rendererState.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
@@ -424,6 +422,20 @@ function deactivateFeature(state, id) {
 }
 
 const FEATURES = {
+  "collapse-all-toggle"(api) {
+    // Show/hide the collapse button. Button is always created by
+    // setupCollapseAllButton at start(); this just toggles visibility.
+    const btn = document.getElementById("rft-btn");
+    const css = document.getElementById("rft-css");
+    if (btn) btn.style.display = "flex";
+    if (css) css.disabled = false;
+    return () => {
+      const b = document.getElementById("rft-btn");
+      const c = document.getElementById("rft-css");
+      if (b) b.style.display = "none";
+      if (c) c.disabled = true;
+    };
+  },
   "exploration-keep-open"(api) {
     const SEL = '[data-testid="exploration-accordion-body"]';
     let disposed = false;
@@ -485,6 +497,8 @@ const FEATURES = {
 
 function setupCollapseAllButton(state) {
   const api = state.api;
+  // Idempotent: skip if button already created on this page
+  if (document.getElementById("rft-btn")) return;
   let collapsed = false;
   let btn = null;
   let styleEl = null;
@@ -503,6 +517,9 @@ function setupCollapseAllButton(state) {
     btn.id = "rft-btn";
     setIcon();
     btn.onclick = toggleAll;
+    // Start hidden if setting is disabled
+    const isEnabled = readFlag(state.api, "collapse-all-toggle", true);
+    btn.style.display = isEnabled ? "flex" : "none";
     document.body.appendChild(btn);
   }
 
