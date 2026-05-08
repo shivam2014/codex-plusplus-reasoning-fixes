@@ -546,9 +546,11 @@ function setupCollapseAllButton(state) {
     setTimeout(makeBtn, 1500);
   }
 
-  // Cleanup for stop()
+  // Cleanup for stop() — find DOM elements dynamically so it works
+  // even when setupCollapseAllButton hits the idempotency guard.
   rendererState._collapseCleanup = function() {
-    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+    var b = document.getElementById("rft-btn");
+    if (b && b.parentNode) b.parentNode.removeChild(b);
     var s = document.getElementById("rft-css");
     if (s && s.parentNode) s.parentNode.removeChild(s);
   };
