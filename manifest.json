@@ -1,8 +1,8 @@
 {
   "id": "co.shivam94.reasoning-fixes",
   "name": "Reasoning & Exploration Fixes",
-  "version": "1.2.0-beta",
-  "description": "Keep exploration panels open and use Codex++ source patches for visible reasoning, file edits, and tool output.",
+  "version": "1.2.0",
+  "description": "v1.2.0 stable \u2014 Keep exploration panels open, reasoning visible, and tool outputs expanded. 14 source patches + 3 runtime features.",
   "author": {
     "name": "shivam94",
     "url": "https://github.com/shivam2014/codex-plusplus-reasoning-fixes"
