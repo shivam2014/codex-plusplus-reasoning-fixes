@@ -5,7 +5,7 @@ Desktop's renderer JavaScript bundles at load time to keep reasoning,
 exploration items, file edits, and tool outputs visible — with no app bundle
 modifications.
 
-> **New to the tweak?** See the [interactive explainer →](docs/index.html) for
+> **New to the tweak?** See the [interactive explainer →](https://shivam2014.github.io/codex-plusplus-reasoning-fixes/) for
 > a visual walkthrough: what it does, how source patching works, patch cards,
 > and a v1.1 → v1.2 comparison with the full debugging timeline.
 
