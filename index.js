@@ -51,9 +51,7 @@ module.exports = {
         "show-exploration-items": true,
         "auto-expand-exec": true,
         "expand-tool-activity": true,
-        "show-tool-outputs": false,
         "collapse-all-toggle": true,
-        "disable-streaming-pulse": true,
       },
     };
     rendererState = state;
@@ -74,9 +72,7 @@ module.exports = {
     }
 
     // Floating collapse/expand all button
-    if (readFlag(state.api, "collapse-all-toggle", true)) {
-      setupCollapseAllButton(state);
-    }
+    setupCollapseAllButton(state);
 
     // Activate live features
     rendererState.reasoningStyle = readStyle(state.api, "reasoning-style", "expanded");
@@ -159,13 +155,6 @@ function renderSettings(root, state) {
     source: true,
   }));
 
-  rsnCard.appendChild(featureRow(state, {
-    id: "disable-streaming-pulse",
-    label: "Disable streaming pulse",
-    desc: "Stops the color pulse on the reasoning text while it is actively streaming.",
-    source: true,
-  }));
-
   rsnSection.appendChild(rsnCard);
   container.appendChild(rsnSection);
 
@@ -192,18 +181,6 @@ function renderSettings(root, state) {
   }));
   explSection.appendChild(explCard);
   container.appendChild(explSection);
-
-  const tlSection = el("section", "flex flex-col gap-2");
-  tlSection.appendChild(sectionTitle("Tool Output"));
-  const tlCard = roundedCard();
-  tlCard.appendChild(featureRow(state, {
-    id: "show-tool-outputs",
-    label: "Keep output visible",
-    desc: "Leaves command and tool results open in the chat.",
-    source: true,
-  }));
-  tlSection.appendChild(tlCard);
-  container.appendChild(tlSection);
 
   const caSection = el("section", "flex flex-col gap-2");
   caSection.appendChild(sectionTitle("Collapse All"));
@@ -445,6 +422,20 @@ function deactivateFeature(state, id) {
 }
 
 const FEATURES = {
+  "collapse-all-toggle"(api) {
+    // Show/hide the collapse button. Button is always created by
+    // setupCollapseAllButton at start(); this just toggles visibility.
+    const btn = document.getElementById("rft-btn");
+    const css = document.getElementById("rft-css");
+    if (btn) btn.style.display = "flex";
+    if (css) css.disabled = false;
+    return () => {
+      const b = document.getElementById("rft-btn");
+      const c = document.getElementById("rft-css");
+      if (b) b.style.display = "none";
+      if (c) c.disabled = true;
+    };
+  },
   "exploration-keep-open"(api) {
     const SEL = '[data-testid="exploration-accordion-body"]';
     let disposed = false;
@@ -506,6 +497,8 @@ const FEATURES = {
 
 function setupCollapseAllButton(state) {
   const api = state.api;
+  // Idempotent: skip if button already created on this page
+  if (document.getElementById("rft-btn")) return;
   let collapsed = false;
   let btn = null;
   let styleEl = null;
@@ -524,6 +517,9 @@ function setupCollapseAllButton(state) {
     btn.id = "rft-btn";
     setIcon();
     btn.onclick = toggleAll;
+    // Start hidden if setting is disabled
+    const isEnabled = readFlag(state.api, "collapse-all-toggle", true);
+    btn.style.display = isEnabled ? "flex" : "none";
     document.body.appendChild(btn);
   }
 
@@ -550,9 +546,11 @@ function setupCollapseAllButton(state) {
     setTimeout(makeBtn, 1500);
   }
 
-  // Cleanup for stop()
+  // Cleanup for stop() — find DOM elements dynamically so it works
+  // even when setupCollapseAllButton hits the idempotency guard.
   rendererState._collapseCleanup = function() {
-    if (btn && btn.parentNode) btn.parentNode.removeChild(btn);
+    var b = document.getElementById("rft-btn");
+    if (b && b.parentNode) b.parentNode.removeChild(b);
     var s = document.getElementById("rft-css");
     if (s && s.parentNode) s.parentNode.removeChild(s);
   };
@@ -576,7 +574,7 @@ function writeFlag(api, id, on) { api.storage.set(`feature:${id}`, !!on); }
 async function syncSourceBackedSettings(state) {
   try {
     const values = {};
-    for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs", "show-exploration-items"]) {
+    for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-exploration-items"]) {
       values[id] = readFlag(state.api, id, state.defaults[id] === true);
     }
     const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
@@ -610,7 +608,7 @@ async function setSourceFeature(state, id, value) {
 }
 
 function syncRendererFlagsFromSourceStatus(state, settings) {
-  for (const id of ["show-reasoning", "disable-shimmer", "disable-streaming-pulse", "show-file-edits", "show-tool-outputs", "show-exploration-items"]) {
+  for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-exploration-items"]) {
     if (typeof settings[id] === "boolean") writeFlag(state.api, id, settings[id]);
   }
 }
