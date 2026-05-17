@@ -39,7 +39,7 @@ const PATCHES = {
     name: "split_items_drop_reasoning_from_exploration",
     bundle: "split-items",
     unpatched: /if\(t\.type===`reasoning`\)\{i&&i\.push\(t\);continue\}/,
-    patched: /if\(t\.type===`reasoning`\)\{i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}/,
+    patched: /if\(t\.type===`reasoning`\)\{console\.log\('\[reasoning-fixes:Ge\] reasoning item standalone',t\.type\);i&&s\(`explored`\);r\.push\(\{kind:`item`,item:t\}\);continue\}/,
     replacement: "if(t.type===`reasoning`){console.log('[reasoning-fixes:Ge] reasoning item standalone',t.type);i&&s(`explored`);r.push({kind:`item`,item:t});continue}",
   },
   "disable-shimmer": {
@@ -59,9 +59,9 @@ const PATCHES = {
   "reasoning-start-expanded": {
     name: "reasoning_start_expanded_useState",
     bundle: "thread",
-    unpatched: /\[d,f\]=\(0,Q\.useState\)\(o\)/,
-    patched: /\[d,f\]=\(0,Q\.useState\)\(!0\)/,
-    replacement: "[d,f]=(0,Q.useState)(!0)",
+    unpatched: /\[d,f\]\s*=\s*\(0,\$\.useState\)\(o\)/,
+    patched: /\[d,f\]\s*=\s*\(0,\$\.useState\)\(!0\)/,
+    replacement: "[d,f]=(0,$.useState)(!0)",
   },
   "reasoning-no-autocollapse": {
     name: "reasoning_no_autocollapse_on_finish",
@@ -94,7 +94,7 @@ const PATCHES = {
   "reasoning-no-animate-height": {
     name: "reasoning_no_height_transition",
     bundle: "thread",
-    unpatched: /initial:!1,animate:P,transition:yo/,
+    unpatched: /initial:!1,animate:P,transition:Po/,
     patched: /initial:!1,animate:P,transition:{duration:0}/,
     replacement: "initial:!1,animate:P,transition:{duration:0}",
   },
@@ -102,15 +102,15 @@ const PATCHES = {
     name: "exploration_items_as_standalone",
     bundle: "split-items",
     unpatched: /function (\w+)\(e\)\{return e\.type!==`exec`\|\|e\.parsedCmd\.type===`read`&&!e\.parsedCmd\.isFinished&&\w+\(\{summary:e\.parsedCmd,cwd:e\.cwd\}\)\?!1:e\.parsedCmd\.type===`list_files`\|\|e\.parsedCmd\.type===`search`\|\|e\.parsedCmd\.type===`read`\}/,
-    patched: /function \w+\(e\)\{return false\}/,
+    patched: /function \w+\(e\)\{console\.log\('\[reasoning-fixes:Ke\] exploration item prevented'\);return false\}/,
     replacement: "function $1(e){console.log('[reasoning-fixes:Ke] exploration item prevented');return false}",
   },
   "fix-assistant-order": {
     name: "find_assistant_anywhere_in_agent_items",
     bundle: "split-items",
-    unpatched: /D=E\[E\.length-1\],O=Xe\(D\)\?D:null,k=\(O\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!O\?\.structuredOutput;O\?\(E\.pop\(\),g\.push\(\.\.\.T\)\):E\.push\(\.\.\.T\);/,
-    patched: /let O=null;for\(let i=E\.length-1;i>=0;--i\)if\(Xe\(E\[i\]\)\)\{O=E\.splice\(i,1\)\[0\];break\}/,
-    replacement: "O=null;for(let i=E.length-1;i>=0;--i)if(Xe(E[i])){O=E.splice(i,1)[0];break}let k=(O?.content?.trim().length??0)>0||!!O?.structuredOutput;O?g.push(...T):E.push(...T);",
+    unpatched: /w=C\[C\.length-1\],T=Xe\(w\)\?w:null,E=\(T\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!T\?\.structuredOutput;T\?\(C\.pop\(\),h\.push\(\.\.\.S\)\):C\.push\(\.\.\.S\);/,
+    patched: /T=null;for\(let i=C\.length-1;i>=0;--i\)if\(Xe\(C\[i\]\)\)\{T=C\.splice\(i,1\)\[0\];break\}let E=\(T\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!T\?\.structuredOutput;T\?h\.push\(\.\.\.S\):C\.push\(\.\.\.S\);/,
+    replacement: "T=null;for(let i=C.length-1;i>=0;--i)if(Xe(C[i])){T=C.splice(i,1)[0];break}let E=(T?.content?.trim().length??0)>0||!!T?.structuredOutput;T?h.push(...S):C.push(...S);",
   },
   "file-edits-no-tool-group": {
     name: "file_edits_not_collapsed_tool_activity",
