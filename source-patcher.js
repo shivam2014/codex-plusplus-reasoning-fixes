@@ -59,8 +59,8 @@ const PATCHES = {
   "reasoning-start-expanded": {
     name: "reasoning_start_expanded_useState",
     bundle: "thread",
-    unpatched: /\[d,f\]\s*=\s*\(0,\$\.useState\)\(o\)/,
-    patched: /\[d,f\]\s*=\s*\(0,\$\.useState\)\(!0\)/,
+    unpatched: /\[d,f\]\s*=\s*\(0,[$\w]\.useState\)\(o\)/,
+    patched: /\[d,f\]\s*=\s*\(0,[$\w]\.useState\)\(!0\)/,
     replacement: "[d,f]=(0,$.useState)(!0)",
   },
   "reasoning-no-autocollapse": {
@@ -94,7 +94,7 @@ const PATCHES = {
   "reasoning-no-animate-height": {
     name: "reasoning_no_height_transition",
     bundle: "thread",
-    unpatched: /initial:!1,animate:P,transition:Po/,
+    unpatched: /initial:!1,animate:P,transition:\w+/,
     patched: /initial:!1,animate:P,transition:{duration:0}/,
     replacement: "initial:!1,animate:P,transition:{duration:0}",
   },
@@ -108,7 +108,7 @@ const PATCHES = {
   "fix-assistant-order": {
     name: "find_assistant_anywhere_in_agent_items",
     bundle: "split-items",
-    unpatched: /w=C\[C\.length-1\],T=Xe\(w\)\?w:null,E=\(T\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!T\?\.structuredOutput;T\?\(C\.pop\(\),h\.push\(\.\.\.S\)\):C\.push\(\.\.\.S\);/,
+    unpatched: /w=C\[C\.length-1\],T=\w{2}\(w\)\?w:null,E=\(T\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!T\?\.structuredOutput;T\?\(C\.pop\(\),h\.push\(\.\.\.S\)\):C\.push\(\.\.\.S\);/,
     patched: /T=null;for\(let i=C\.length-1;i>=0;--i\)if\(Xe\(C\[i\]\)\)\{T=C\.splice\(i,1\)\[0\];break\}let E=\(T\?\.content\?\.trim\(\)\.length\?\?0\)>0\|\|!!T\?\.structuredOutput;T\?h\.push\(\.\.\.S\):C\.push\(\.\.\.S\);/,
     replacement: "T=null;for(let i=C.length-1;i>=0;--i)if(Xe(C[i])){T=C.splice(i,1)[0];break}let E=(T?.content?.trim().length??0)>0||!!T?.structuredOutput;T?h.push(...S):C.push(...S);",
   },
