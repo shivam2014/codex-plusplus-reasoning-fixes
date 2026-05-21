@@ -27,3 +27,24 @@ This was triggered under the existing `disable-shimmer` setting.
 - Investigate the `loading-shimmer-pure-text` class applied when `r.status === "active"`
 - Look for CSS animations in `index-DJG96UDN.css` that target reasoning content
 - Consider inspecting the running Codex DOM
+
+## Branch: fix/codex_update_26.519.22136
+
+### Attempt 1: Fix 4 broken patches after Codex v26.519.22136 update
+
+**What we tried:** Identified that Codex now ships TWO route variants of each bundle
+(app-main route and remote-conversation route) with different minified variable names.
+Applied 3 regex fixes:
+
+1. **reasoning-start-expanded**: Changed `\$` → `[$\w]` to match both `$.useState` (new
+   route) and `Q.useState` (old route).
+2. **reasoning-no-animate-height**: Changed `Po` → `\w+` to match both `Po` (new route)
+   and `ha` (old route) transition variables.
+3. **fix-assistant-order**: Changed `Xe` → `\w{2}` to match both `Xe` (new route) and
+   `me` (old route) function names.
+
+**Result:** 27/28 patch-bundle combinations verified OK. The only expected failure is
+`reasoning-no-blink-fade` on the old-route thread bundle (BEJL-MdX.js) which doesn't
+use `fadeType` at all — it passes `isStreaming` directly instead.
+
+**Status:** Committed and deployed. Ready for testing.
