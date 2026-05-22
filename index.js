@@ -194,6 +194,53 @@ function renderSettings(root, state) {
   caSection.appendChild(caCard);
   container.appendChild(caSection);
 
+
+  // ── Auto-Heal status section (alpha) ──
+  const healSection = el("section", "flex flex-col gap-2");
+  healSection.appendChild(sectionTitle("Auto-Heal Status"));
+  const healCard = roundedCard();
+  const healRow = el("div", "flex flex-col gap-2 p-3");
+  
+  const healLabel = el("div", "text-sm text-token-text-primary");
+  healLabel.textContent = "Patch healing events";
+  healRow.appendChild(healLabel);
+  
+  const healDesc = el("div", "text-token-text-secondary min-w-0 text-sm");
+  healRow.appendChild(healDesc);
+  
+  const healList = el("div", "flex flex-col gap-1 mt-1 text-xs font-mono");
+  healRow.appendChild(healList);
+  healCard.appendChild(healRow);
+  healSection.appendChild(healCard);
+  container.appendChild(healSection);
+  
+  // Refresh heal status when page renders
+  const renderHealStatus = async () => {
+    try {
+      const result = await state.api.ipc.invoke("source-patches-v2", { action: "heal-status" });
+      if (result?.ok && result?.healed?.length > 0) {
+        healDesc.textContent = result.healed.length + " patches auto-healed in this session:";
+        healList.innerHTML = "";
+        for (const feat of result.healed) {
+          const item = document.createElement("div");
+          item.className = "text-token-text-primary";
+          item.textContent = "🩹 " + feat;
+          healList.appendChild(item);
+        }
+      } else if (result?.ok) {
+        healDesc.textContent = "No auto-healing needed yet. All patches matched exactly.";
+        healList.innerHTML = "";
+        const item = document.createElement("div");
+        item.className = "text-token-text-tertiary";
+        item.textContent = "Will appear here when a Codex update changes variable names.";
+        healList.appendChild(item);
+      }
+    } catch (e) {
+      healDesc.textContent = "Heal status unavailable.";
+    }
+  };
+  renderHealStatus();
+
   root.appendChild(container);
 }
 
