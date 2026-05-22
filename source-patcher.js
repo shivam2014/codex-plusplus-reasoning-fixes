@@ -25,6 +25,8 @@ const SETTING_FEATURES = {
     "fix-assistant-order",
     "auto-expand-exec",
     "expand-tool-activity",
+    "thought-fade-disable",
+    "thought-fade-disable-un",
   ],
   "show-exploration-items": [
     "show-exploration-items",
@@ -224,7 +226,21 @@ const PATCHES = {
       verify: /defaultExpanded:!0,(onExpand:)/,
     },
   },
-  "thought-fade-disable-un": {
+  
+  "thought-fade-disable": {
+    name: "disable_markdown_fade_wn",
+    bundle: "markdown",
+    unpatched: /function Wn\(\{fadeText:e,fadeSegmentStartIndex:t,segments:n\}\)\{return e\?n\.map\(\(e,n\)=>\{let r=t\+n;return\(0,Z\.jsx\)\(`span`,\{className:W\.fadeIn,children:e\},`fade-\$\{r\}`\)\}\):n\}/,
+    patched: /function Wn\(\{fadeText:e,fadeSegmentStartIndex:t,segments:n\}\)\{return n\}/,
+    replacement: "function Wn({fadeText:e,fadeSegmentStartIndex:t,segments:n}){return n}",
+    skeleton: {
+      match: /function (\w+)\(\{fadeText:(\w+),fadeSegmentStartIndex:(\w+),segments:(\w+)\}\)\{return \2\?\4\.map\(\(\2,\4\)=>\{let (\w+)=\3\+\4;return\(0,(\w+)\.jsx\)\(`span`,\{className:(\w+)\.fadeIn,children:\2\},`fade-\$\{\5\}`\)\}\):\4\}/,
+      replacement: (m) => `function ${m[1]}({fadeText:${m[2]},fadeSegmentStartIndex:${m[3]},segments:${m[4]}}){return ${m[4]}}`,
+      verify: /function \w+\(\{fadeText:\w+,fadeSegmentStartIndex:\w+,segments:\w+\}\)\{return \w+\}/,
+    },
+  },
+
+"thought-fade-disable-un": {
     name: "disable_markdown_fade_un",
     bundle: "markdown",
     unpatched: /function Un\(\{content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\)\{let c=Mt\(\{content:e,cwd:t,hostId:i,key:n\?void 0:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\);return n\?\(0,Z\.jsx\)\(`span`,\{className:W\.fadeIn,children:c\},`fade-\$\{r\}`\):c\}/,
