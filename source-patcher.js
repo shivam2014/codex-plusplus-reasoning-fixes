@@ -224,6 +224,20 @@ const PATCHES = {
       verify: /defaultExpanded:!0,(onExpand:)/,
     },
   },
+  "thought-fade-disable-un": {
+    name: "disable_markdown_fade_un",
+    bundle: "markdown",
+    unpatched: /function Un\(\{content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\)\{let c=Mt\(\{content:e,cwd:t,hostId:i,key:n\?void 0:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\);return n\?\(0,Z\.jsx\)\(`span`,\{className:W\.fadeIn,children:c\},`fade-\$\{r\}`\):c\}/,
+    patched: /function Un\(\{content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\)\{let c=Mt\(\{content:e,cwd:t,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\);return c\}/,
+    replacement: "function Un({content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s}){let c=Mt({content:e,cwd:t,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s});return c}",
+    skeleton: {
+      match: /function (\w+)\(\{content:(\w+),cwd:(\w+),fadeText:(\w+),fadeSegmentIndex:(\w+),hostId:(\w+),key:(\w+),onFileLinkOpen:(\w+),openFileLinksInSidePanel:(\w+)\}\)\{let (\w+)=Mt\(\{content:\2,cwd:\3,hostId:\6,key:n\?void 0:\7,onFileLinkOpen:\8,openFileLinksInSidePanel:\9\}\);return \4\?\(0,(\w+)\.jsx\)\(`span`,\{className:(\w+)\.fadeIn,children:\10\},`fade-\$\{\5\}`\):\10\}/,
+      replacement: (m) => {
+        return `function ${m[1]}({content:${m[2]},cwd:${m[3]},fadeText:${m[4]},fadeSegmentIndex:${m[5]},hostId:${m[6]},key:${m[7]},onFileLinkOpen:${m[8]},openFileLinksInSidePanel:${m[9]}}){let ${m[10]}=Mt({content:${m[2]},cwd:${m[3]},hostId:${m[6]},key:${m[7]},onFileLinkOpen:${m[8]},openFileLinksInSidePanel:${m[9]}});return ${m[10]}}`;
+      },
+      verify: /function \w+\(\{content:\w+,cwd:\w+,fadeText:\w+,fadeSegmentIndex:\w+,hostId:\w+,key:\w+,onFileLinkOpen:\w+,openFileLinksInSidePanel:\w+\}\)\{let \w+=Mt\(\{[^}]+\}\);return \w+\}/,
+    },
+  },
 };
 
 // ── Main process entry point ──────────────────────────────────────────
