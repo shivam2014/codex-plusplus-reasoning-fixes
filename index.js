@@ -577,7 +577,7 @@ async function syncSourceBackedSettings(state) {
     for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-exploration-items"]) {
       values[id] = readFlag(state.api, id, state.defaults[id] === true);
     }
-    const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
+    const result = await state.api.ipc.invoke("source-patches-v2", { action: "sync-features", values });
     state.sourceStatus = result;
     notifySourceStatusSubscribers(state);
   } catch (e) {
@@ -587,7 +587,7 @@ async function syncSourceBackedSettings(state) {
 
 async function refreshSourceStatus(state) {
   try {
-    const result = await state.api.ipc.invoke("source-patches-v1", { action: "status" });
+    const result = await state.api.ipc.invoke("source-patches-v2", { action: "status" });
     state.sourceStatus = result;
     if (result?.settings) syncRendererFlagsFromSourceStatus(state, result.settings);
     notifySourceStatusSubscribers(state);
@@ -598,7 +598,7 @@ async function refreshSourceStatus(state) {
 
 async function setSourceFeature(state, id, value) {
   try {
-    const result = await state.api.ipc.invoke("source-patches-v1", { action: "set-feature", id, value });
+    const result = await state.api.ipc.invoke("source-patches-v2", { action: "set-feature", id, value });
     state.sourceStatus = result;
     await refreshSourceStatus(state);
     notifySourceStatusSubscribers(state);
