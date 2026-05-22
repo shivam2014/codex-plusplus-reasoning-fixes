@@ -388,6 +388,14 @@ function applyDisableShimmerStyle(state, disabled) {
     .loading-shimmer-pure-text.text-size-chat.select-none.truncate[class*="cadencedShimmer"] {
       animation: none !important;
     }
+
+    [class*="_markdownRoot"] li,
+    [class*="_markdownRoot"] hr,
+    [class*="_markdownRoot"] tr,
+    [class*="_markdownRoot"] blockquote {
+      opacity: 1 !important;
+      animation: none !important;
+    }
   `;
   document.head.appendChild(styleEl);
 

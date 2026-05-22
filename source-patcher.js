@@ -25,6 +25,7 @@ const SETTING_FEATURES = {
     "auto-expand-exec",
     "expand-tool-activity",
     "thought-fade-disable",
+    "thought-fade-disable-un",
   ],
   "show-exploration-items": [
     "show-exploration-items",
@@ -142,6 +143,13 @@ const PATCHES = {
         unpatched: /function Wn\(\{fadeText:e,fadeSegmentStartIndex:t,segments:n\}\)\{return e\?n\.map\(\(e,n\)=>\{let r=t\+n;return\(0,Z\.jsx\)\(`span`,\{className:W\.fadeIn,children:e\},`fade-\$\{r\}`\)\}\):n\}/,
     patched: /function Wn\(\{fadeText:e,fadeSegmentStartIndex:t,segments:n\}\)\{return n\}/,
     replacement: "function Wn({fadeText:e,fadeSegmentStartIndex:t,segments:n}){return n}",
+  },
+  "thought-fade-disable-un": {
+    name: "disable_markdown_fade_un",
+    bundle: "markdown",
+    unpatched: /function Un\(\{content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\)\{let c=Mt\(\{content:e,cwd:t,hostId:i,key:n\?void 0:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\);return n\?\(0,Z\.jsx\)\(`span`,\{className:W\.fadeIn,children:c\},`fade-\$\{r\}`\):c\}/,
+    patched: /function Un\(\{content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\)\{let c=Mt\(\{content:e,cwd:t,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\);return c\}/,
+    replacement: "function Un({content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s}){let c=Mt({content:e,cwd:t,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s});return c}",
   },
 };
 
