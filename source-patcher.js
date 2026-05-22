@@ -24,6 +24,7 @@ const SETTING_FEATURES = {
     "fix-assistant-order",
     "auto-expand-exec",
     "expand-tool-activity",
+    "thought-fade-disable",
   ],
   "show-exploration-items": [
     "show-exploration-items",
@@ -134,6 +135,13 @@ const PATCHES = {
     unpatched: /defaultExpanded:!1,onExpand:/g,
     patched: /defaultExpanded:!0,onExpand:/g,
     replacement: "defaultExpanded:!0,onExpand:",
+  },
+  "thought-fade-disable": {
+    name: "disable_markdown_fade_wn",
+    bundle: "markdown",
+        unpatched: /function Wn\(\{fadeText:e,fadeSegmentStartIndex:t,segments:n\}\)\{return e\?n\.map\(\(e,n\)=>\{let r=t\+n;return\(0,Z\.jsx\)\(`span`,\{className:W\.fadeIn,children:e\},`fade-\$\{r\}`\)\}\):n\}/,
+    patched: /function Wn\(\{fadeText:e,fadeSegmentStartIndex:t,segments:n\}\)\{return n\}/,
+    replacement: "function Wn({fadeText:e,fadeSegmentStartIndex:t,segments:n}){return n}",
   },
 };
 
@@ -426,6 +434,7 @@ function bundleForUrl(rawUrl) {
   if (/^thinking-shimmer-[A-Za-z0-9_-]+\.js$/.test(basename)) return "shimmer";
   if (/^lt-[A-Za-z0-9_-]+\.js$/.test(basename)) return "lt";
   if (/^local-environments-settings-page-[A-Za-z0-9_-]+\.js$/.test(basename)) return "settings-page";
+  if (/^markdown-[A-Za-z0-9_-]+\.js$/.test(basename)) return "markdown";
   if (/^local-conversation-thread-[A-Za-z0-9_-]+\.js$/.test(basename)) return "thread";
   return null;
 }
