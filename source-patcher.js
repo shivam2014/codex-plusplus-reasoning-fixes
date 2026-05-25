@@ -28,7 +28,6 @@ const SETTING_FEATURES = {
     "reasoning-no-autocollapse",
     "reasoning-no-blink",
     "no-layout-position",
-    "reasoning-no-blink-fade",
     "reasoning-no-animate-height",
     "fix-assistant-order",
     "auto-expand-exec",
@@ -138,18 +137,6 @@ const PATCHES = {
       match: /layout:`position`,/,
       replacement: () => "layout:!1,",
       verify: /layout:!1,/,
-    },
-  },
-  "reasoning-no-blink-fade": {
-    name: "reasoning_no_blink_markdown_fade",
-    bundle: "thread",
-    unpatched: /fadeType:o\?`indexed`:`none`/,
-    patched: /fadeType:`none`/,
-    replacement: "fadeType:`none`",
-    skeleton: {
-      match: /fadeType:(\w+)\?`indexed`:`none`/,
-      replacement: () => "fadeType:`none`",
-      verify: /fadeType:`none`/,
     },
   },
   "reasoning-no-animate-height": {
