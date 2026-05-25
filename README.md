@@ -5,9 +5,10 @@ Desktop's renderer JavaScript bundles at load time to keep reasoning,
 exploration items, file edits, and tool outputs visible — with no app bundle
 modifications.
 
-> **New to the tweak?** See the [interactive explainer →](https://shivam2014.github.io/codex-plusplus-reasoning-fixes/) for
+> **New to the tweak?** See the [interactive explainer (v1.3) →](https://shivam2014.github.io/codex-plusplus-reasoning-fixes/) for
+> the [v1.2 explainer →](https://shivam2014.github.io/codex-plusplus-reasoning-fixes/v1.2-explainer.html) for the original debugging timeline and v1.1 → v1.2 migration story.
 > a visual walkthrough: what it does, how source patching works, patch cards,
-> and a v1.1 → v1.2 comparison with the full debugging timeline.
+> and a v1.1 → v1.3 comparison with the full debugging timeline.
 
 ---
 
@@ -48,9 +49,11 @@ source rule no longer matches the current Codex version.
 
 ```
 co.shivam94.reasoning-fixes/
-├── manifest.json          # Tweak manifest (v1.2.0)
+├── manifest.json          # Tweak manifest (v1.3.0)
 ├── index.js               # Renderer settings UI, fiber hook, collapse-all button
 ├── source-patcher.js      # Main-process protocol-wrapper and source transformer
+├── scripts/
+│   └── verify-patches.js  # Offline patch verification against extracted ASAR
 ├── docs/
 │   ├── index.html         # Interactive visual explainer
 │   └── validate-html.mjs  # HTML validation script
@@ -71,7 +74,6 @@ co.shivam94.reasoning-fixes/
 | `reasoning-start-expanded` | thread | `useState(o)` → `useState(true)` |
 | `reasoning-no-autocollapse` | thread | Removes `setExpanded(false)` on finish |
 | `reasoning-no-blink` | thread | Disables streaming blink on reasoning label |
-| `reasoning-no-blink-fade` | thread | Removes `fadeType` animation |
 | `reasoning-no-animate-height` | thread | Zero-duration height transition |
 | `no-layout-position` | thread | Disables Framer Motion `layout:"position"` |
 | `disable-shimmer` | shimmer | Stops the pulsing text animation |
@@ -80,6 +82,8 @@ co.shivam94.reasoning-fixes/
 | `file-edits-no-tool-group` | split-items | Keeps patches out of tool-activity grouping |
 | `auto-expand-exec` | thread | `defaultExpandExecShell: true` |
 | `expand-tool-activity` | thread | `defaultExpanded: true` on tool sections |
+| `thought-fade-disable` | markdown | Disables `Wn` fadeIn spans during streaming |
+| `thought-fade-disable-un` | markdown | Disables `Un` fadeIn wrapper during streaming |
 
 ### Runtime features (no reload needed)
 
@@ -89,16 +93,54 @@ co.shivam94.reasoning-fixes/
 | Reasoning display style | Injected `<style>` overriding scrollbox height |
 | Collapse-all button | CSS class toggle on `<body>` via floating DOM button |
 
-### Compatibility
+---
+
+## Auto-healing
+
+v1.3.0 introduces **skeleton-based auto-healing**. Each patch has a loose
+`match` regex with capture groups for JavaScript identifiers. When the exact
+regex fails after a Codex update, the auto-heal engine:
+
+1. Runs the skeleton `match` against the bundle → captures variable names
+2. Regenerates the replacement using captured names
+3. Verifies the output matches the `verify` pattern
+
+Persistence: healed patterns are cached to `api.storage` per Codex version so
+they survive restarts without re-healing.
+
+Current status against Codex v26.519.41501: **15/15 patches working**
+(11 exact match + 4 auto-healed).
+
+---
+
+## Compatibility
 
 `inspectRule()` tests each patch rule against the served source:
 
 | Status | Meaning |
 |---|---|
-| `not_applied` | Unpatched pattern found → replacement applied |
-| `already` | Patched pattern present → skip (idempotent) |
+| `active` | Patch matched exactly and was applied |
+| `healed_auto` | Exact match failed, skeleton auto-healed it |
+| `not_applied` | Unpatched pattern found, waiting to apply |
+| `already` | Patched pattern present — skip (idempotent) |
 | `unsupported` | Neither pattern matches → warning in UI |
-| `mixed` | Ambiguous → treated as unsupported |
+| `structural_rewrite` | Code moved to a different bundle or removed |
+| `mixed` | Ambiguous — treated as unsupported |
+
+---
+
+## Protocol interception
+
+v1.3.0 uses a **dual approach** to intercept `app://` bundle requests:
+
+- **Approach A**: Patch `protocol.handle` to wrap future handler registrations
+- **Approach B**: Register `protocol.interceptBufferProtocol` as a file-serving
+  handler that reads directly from the ASAR, applies Statsig gate patches
+  (compatible with co.bennett.computer-use), and applies reasoning-fixes
+  source patches
+
+Approach B ensures the tweak works even when the Computer Use tweak's
+`interceptBufferProtocol` would otherwise replace the `app://` handler.
 
 ---
 
