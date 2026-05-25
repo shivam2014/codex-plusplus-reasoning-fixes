@@ -1,8 +1,8 @@
 {
   "id": "co.shivam94.reasoning-fixes",
   "name": "Reasoning & Exploration Fixes",
-  "version": "1.2.1",
-  "description": "v1.2.1 — Fix thought shimmer during streaming (disable Wn fadeIn spans). 15 source patches + 3 runtime features. Codex v26.519.22136.",
+  "version": "1.3.0",
+  "description": "v1.3.0 — Auto-healing patcher. Skeleton-based self-repair for Codex version drift. 11 exact + 4 auto-healed = 15/15 patches working.",
   "author": {
     "name": "shivam94",
     "url": "https://github.com/shivam2014/codex-plusplus-reasoning-fixes"

@@ -100,6 +100,7 @@ module.exports = {
     }
     s.cssInjections.clear();
     s.sourceStatusSubscribers?.clear();
+    if (s._healInterval) { clearInterval(s._healInterval); s._healInterval = null; }
     if (s._collapseCleanup) { try { s._collapseCleanup(); } catch(e) {} }
     settingsPageHandle?.unregister();
     settingsPageHandle = null;
@@ -193,6 +194,86 @@ function renderSettings(root, state) {
   }));
   caSection.appendChild(caCard);
   container.appendChild(caSection);
+
+
+  // ── Auto-Heal status section ──
+  const healSection = el("section", "flex flex-col gap-2");
+  healSection.appendChild(sectionTitle("Patch Status"));
+  const healCard = roundedCard();
+  const healRow = el("div", "flex flex-col gap-2 p-3");
+  
+  const healDesc = el("div", "text-token-text-secondary min-w-0 text-sm");
+  healRow.appendChild(healDesc);
+  
+  const healList = el("div", "flex flex-col gap-1 mt-1 text-xs font-mono");
+  healRow.appendChild(healList);
+  healCard.appendChild(healRow);
+  healSection.appendChild(healCard);
+  container.appendChild(healSection);
+  
+  // Fetch fresh data from IPC — always up-to-date
+  const renderHealStatus = async () => {
+    try {
+      const result = await state.api.ipc.invoke("source-patches-v2", { action: "status" });
+      const features = result?.features || [];
+      if (features.length === 0) {
+        healDesc.textContent = "Waiting for bundles to load...";
+        healList.innerHTML = "";
+        return;
+      }
+      const byStatus = {};
+      for (const f of features) {
+        if (!byStatus[f.status]) byStatus[f.status] = [];
+        byStatus[f.status].push(f.feature);
+      }
+      const active = byStatus["active"]?.length || 0;
+      const healed = byStatus["healed_auto"]?.length || 0;
+      const structural = byStatus["structural_rewrite"]?.length || 0;
+      const failed = byStatus["heal_failed"]?.length || 0;
+      const unsupported = byStatus["unsupported"]?.length || 0;
+      
+      healDesc.textContent = active + " exact + " + healed + " auto-healed + " + structural + " structural / " + features.length + " total";
+      healList.innerHTML = "";
+      
+      if (healed > 0) {
+        for (const feat of byStatus["healed_auto"]) {
+          const item = document.createElement("div");
+          item.className = "text-token-text-primary";
+          item.textContent = "🩹 " + feat;
+          healList.appendChild(item);
+        }
+      }
+      if (structural > 0) {
+        for (const feat of byStatus["structural_rewrite"]) {
+          const item = document.createElement("div");
+          item.className = "text-token-text-warning";
+          item.textContent = "💀 " + feat + " (needs new skeleton)";
+          healList.appendChild(item);
+        }
+      }
+      if (unsupported > 0 || failed > 0) {
+        for (const feat of [...(byStatus["unsupported"]||[]), ...(byStatus["heal_failed"]||[])]) {
+          const item = document.createElement("div");
+          item.className = "text-token-text-warning";
+          item.textContent = "❌ " + feat;
+          healList.appendChild(item);
+        }
+      }
+      if (active > 0 && healed === 0 && structural === 0) {
+        const item = document.createElement("div");
+        item.className = "text-token-text-tertiary";
+        item.textContent = "All patches matched exactly — no healing needed.";
+        healList.appendChild(item);
+      }
+    } catch (e) {
+      healDesc.textContent = "Status unavailable.";
+    }
+  };
+  // Initial render + refresh every 3s so it captures bundles loaded later
+  renderHealStatus();
+  const healInterval = setInterval(renderHealStatus, 3000);
+  // Clean up interval on stop
+  state._healInterval = healInterval;
 
   root.appendChild(container);
 }
@@ -585,7 +666,7 @@ async function syncSourceBackedSettings(state) {
     for (const id of ["show-reasoning", "disable-shimmer", "show-file-edits", "show-exploration-items"]) {
       values[id] = readFlag(state.api, id, state.defaults[id] === true);
     }
-    const result = await state.api.ipc.invoke("source-patches-v1", { action: "sync-features", values });
+    const result = await state.api.ipc.invoke("source-patches-v2", { action: "sync-features", values });
     state.sourceStatus = result;
     notifySourceStatusSubscribers(state);
   } catch (e) {
@@ -595,7 +676,7 @@ async function syncSourceBackedSettings(state) {
 
 async function refreshSourceStatus(state) {
   try {
-    const result = await state.api.ipc.invoke("source-patches-v1", { action: "status" });
+    const result = await state.api.ipc.invoke("source-patches-v2", { action: "status" });
     state.sourceStatus = result;
     if (result?.settings) syncRendererFlagsFromSourceStatus(state, result.settings);
     notifySourceStatusSubscribers(state);
@@ -606,7 +687,7 @@ async function refreshSourceStatus(state) {
 
 async function setSourceFeature(state, id, value) {
   try {
-    const result = await state.api.ipc.invoke("source-patches-v1", { action: "set-feature", id, value });
+    const result = await state.api.ipc.invoke("source-patches-v2", { action: "set-feature", id, value });
     state.sourceStatus = result;
     await refreshSourceStatus(state);
     notifySourceStatusSubscribers(state);
