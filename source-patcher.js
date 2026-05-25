@@ -3,6 +3,14 @@ const IPC_KEY = "__reasoningFixesSourcePatcherIpcV2";
 const RELOAD_TOKEN_KEY = "__reasoningFixesSourceReloadTokenV2";
 const HEAL_CACHE_KEY = "source:healed:v26_519_31651";
 
+// ── Constants for protocol interception ──────────────────────────────
+// Statsig gate for Computer Use compatibility (co.bennett.computer-use)
+const COMPUTER_USE_STATSIG_GATE = "1506311413";
+const STATSIG_ASSET_RE = /\/assets\/statsig-[^/]+\.js$/;
+// Retry delays (ms) for interceptBufferProtocol registration
+const INTERCEPT_RETRIES = [0, 50, 150, 500, 1500, 3000, 6000, 12000];
+const APP_PROTOCOL_SCHEME = "app";
+
 const DEFAULTS = {
   "show-reasoning": true,
   "disable-shimmer": true,
@@ -287,9 +295,22 @@ function startReasoningFixesMain(api) {
   };
 }
 
+// ── Protocol interception: Dual approach ─────────────────────────────
+//
+// Approach A: Patch `protocol.handle` to wrap future `app://` handler
+// registrations. This works when no other tweak uses interceptBufferProtocol.
+//
+// Approach B: Register a `protocol.interceptBufferProtocol` handler that
+// reads files directly from disk, applies Statsig patches (compatible with
+// co.bennett.computer-use), and applies reasoning-fixes source patches.
+// This is needed because the Computer Use tweak's interceptBufferProtocol
+// replaces the entire app:// handler, bypassing Approach A.
+
 function installProtocolPatch(state) {
   if (state.protocolPatched) return;
-  const { protocol } = require("electron");
+  const { protocol, app } = require("electron");
+
+  // ── Approach A: Patch protocol.handle ──
   const originalHandle = protocol.handle;
 
   const reasoningFixesProtocolHandle = function reasoningFixesProtocolHandle(scheme, handler) {
@@ -350,9 +371,24 @@ function installProtocolPatch(state) {
         protocol.handle = originalHandle;
       }
     } catch(e) {}
+    // Clean up Approach B (interceptBufferProtocol)
+    if (state._interceptTimers) {
+      for (const t of state._interceptTimers) clearTimeout(t);
+      state._interceptTimers = null;
+    }
+    if (state._interceptInstalled) {
+      try { protocol.uninterceptProtocol(APP_PROTOCOL_SCHEME); } catch(e) {}
+      state._interceptInstalled = false;
+    }
     state.protocolPatched = false;
   };
 
+  // ── Approach B: register interceptBufferProtocol after app ready ──
+  // This ensures we take back the app:// handler if CU tweak's intercept
+  // has replaced it. We retry multiple times to win any race with CU.
+  installInterceptBufferProtocolPatch(state);
+
+  // ── Reload windows to pick up patches ──
   try {
     const { BrowserWindow } = require("electron");
     for (const window of BrowserWindow.getAllWindows()) {
@@ -365,6 +401,164 @@ function installProtocolPatch(state) {
     }
   } catch(e) {}
 }
+
+// ── Approach B: interceptBufferProtocol ──────────────────────────────
+//
+// Registers a file-serving handler for the app:// protocol that reads
+// assets directly from the Codex app bundle, applies Statsig gate patches
+// (compatible with co.bennett.computer-use), and applies reasoning-fixes
+// source transformations.
+
+function installInterceptBufferProtocolPatch(state) {
+  state.api.log.info("[reasoning-fixes] installInterceptBufferProtocolPatch called");
+  const { app, protocol } = require("electron");
+  const fs = require("node:fs");
+  const path = require("node:path");
+
+  const timers = [];
+  state._interceptTimers = timers;
+  state._interceptInstalled = false;
+
+  function tryInstall() { state.api.log.info("[reasoning-fixes] tryInstall called (enabled=" + state.enabled + ")");
+    // Always try to claim the app:// handler. CU tweak may re-register
+    // its intercept at any time, so we need to persistently fight for it.
+    if (!state.enabled) return;
+
+    // Unregister any existing intercept (e.g. from co.bennett.computer-use)
+    // so we can take over the app:// handler
+    try { protocol.uninterceptProtocol(APP_PROTOCOL_SCHEME); } catch (e) {}
+
+    try {
+      protocol.interceptBufferProtocol(APP_PROTOCOL_SCHEME, (request, respond) => {
+        handleAppProtocolRequest(state, request, respond, { app, fs, path });
+      }, (error) => {
+        if (error) {
+          // Expected while app protocol isn't ready yet
+          return;
+        }
+        if (!state._interceptInstalled) {
+          state._interceptInstalled = true;
+          state.api.log.info("[reasoning-fixes] interceptBufferProtocol installed for app:// assets");
+          // Reload windows so bundles are re-fetched through our handler
+          try {
+            const { BrowserWindow } = require("electron");
+            for (const win of BrowserWindow.getAllWindows()) {
+              if (win.isDestroyed()) continue;
+              const u = win.webContents.getURL();
+              if (u.startsWith("app://-/") || u === "about:blank") {
+                win.webContents.reloadIgnoringCache();
+              }
+            }
+          } catch (e) {}
+        }
+      });
+    } catch (e) {
+      // Expected race with CU tweak
+    }
+  }
+
+  // Schedule retries after app ready
+  app.whenReady().then(() => {
+    for (const delay of INTERCEPT_RETRIES) {
+      const t = setTimeout(tryInstall, delay);
+      timers.push(t);
+    }
+  }).catch(() => {});
+}
+
+function handleAppProtocolRequest(state, request, respond, { app, fs, path }) {
+  try {
+    const url = new URL(request.url);
+    const webviewRoot = path.join(app.getAppPath(), "webview");
+    let pathname = decodeURIComponent(url.pathname || "/index.html");
+    if (pathname === "/") pathname = "/index.html";
+
+    const relativePath = pathname.replace(/^\/+/, "");
+    const filePath = path.resolve(webviewRoot, relativePath);
+    const relativeToRoot = path.relative(webviewRoot, filePath);
+    if (relativeToRoot.startsWith("..") || path.isAbsolute(relativeToRoot)) {
+      respond({ statusCode: 403, mimeType: "text/plain", data: Buffer.from("Forbidden") });
+      return;
+    }
+
+    fs.readFile(filePath, (readError, data) => {
+      if (readError) {
+        respond({ statusCode: 404, mimeType: "text/plain", data: Buffer.from("Not found") });
+        return;
+      }
+
+      let body = data;
+
+      // If Statsig asset, apply Computer Use gate patch (compatible with co.bennett.computer-use)
+      if (STATSIG_ASSET_RE.test(pathname)) {
+        const patched = patchStatsigGate(data.toString("utf8"));
+        if (patched.changed) {
+          state.api.log.info("[reasoning-fixes] patched Statsig gate for " + pathname);
+          body = Buffer.from(patched.source, "utf8");
+        }
+      }
+
+      // If it's a JS bundle we patch, apply reasoning-fixes source patches
+      const mimeType = mimeTypeForPath(pathname);
+      if (mimeType === "text/javascript" && state.enabled) {
+        const bundle = bundleForUrl(request.url);
+        if (bundle) {
+          const sourceStr = body.toString("utf8");
+          state.api.log.info("[reasoning-fixes] patching " + bundle + " bundle via intercept (" + sourceStr.length + " bytes)");
+          const result = patchSource(state, request.url, sourceStr, bundle);
+          if (result.changed) {
+            state.api.log.info("[reasoning-fixes] " + bundle + " bundle changed via intercept: " + sourceStr.length + " -> " + result.text.length + " bytes");
+            body = Buffer.from(result.text, "utf8");
+          }
+          if (result.healed) {
+            state.api.log.info("[reasoning-fixes] auto-healed via intercept " + result.healed.length + " patches: " + result.healed.join(", "));
+          }
+        }
+      }
+
+      respond({ mimeType, data: body });
+    });
+  } catch (error) {
+    state.api.log.warn("[reasoning-fixes] interceptBufferProtocol handler error", error?.message || String(error));
+    respond({ statusCode: 500, mimeType: "text/plain", data: Buffer.from("Internal error") });
+  }
+}
+
+function patchStatsigGate(source) {
+  const COMPUTER_USE_STATSIG_GATE = "1506311413";
+  const patchedNeedle = `String(e)===${JSON.stringify(COMPUTER_USE_STATSIG_GATE)}`;
+  if (source.includes(patchedNeedle)) {
+    return { changed: false, source, reason: "already patched" };
+  }
+  const pattern = /checkGate\((\w+),(\w+)\)\{return this\.getFeatureGate\(\1,\2\)\.value\}/;
+  const match = source.match(pattern);
+  if (!match) {
+    return { changed: false, source, reason: "checkGate pattern not found" };
+  }
+  const [needle, gateArg, optionsArg] = match;
+  return {
+    changed: true,
+    source: source.replace(
+      needle,
+      `checkGate(${gateArg},${optionsArg}){return String(${gateArg})===${JSON.stringify(COMPUTER_USE_STATSIG_GATE)}?!0:this.getFeatureGate(${gateArg},${optionsArg}).value}`
+    ),
+    reason: "patched",
+  };
+}
+
+function mimeTypeForPath(filePath) {
+  const extension = filePath.split("?")[0].split(".").pop()?.toLowerCase();
+  switch (extension) {
+    case "html": return "text/html";
+    case "js": return "text/javascript";
+    case "css": return "text/css";
+    case "json": return "application/json";
+    case "svg": return "image/svg+xml";
+    default: return "application/octet-stream";
+  }
+}
+
+// ── IPC handlers ─────────────────────────────────────────────────────
 
 function installIpc(state) {
   const shared = globalThis[IPC_KEY] || { registered: false };
@@ -667,6 +861,13 @@ function countMatches(source, re) {
 }
 
 function recordObservation(state, feature, rule, status, bundle, asset) {
+  // Don't let a non-active status overwrite an already-active observation
+  // This prevents structural_rewrite from a bundle file that doesn't contain
+  // the target code from hiding a successful exact match in another file.
+  const existing = state.observations[feature];
+  if (existing && existing.status === "active" && (status === "structural_rewrite" || status === "unsupported" || status === "ambiguous_heal" || status === "heal_failed")) {
+    return;
+  }
   state.observations[feature] = {
     feature,
     rule: rule.name,
