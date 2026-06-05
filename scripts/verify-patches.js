@@ -179,8 +179,7 @@ function runVerification() {
 
         const matchResult = matchSkeleton(text, rule.skeleton.match);
         if (matchResult.count === 0) {
-          // structural rewrite
-          best = { status: "STRUCTURAL_REWRITE", bundle: bundleType, file: fname, detail: "0 skeleton matches — code may have moved/been removed" };
+          // No skeleton match in this file — try next file
           continue;
         } else if (matchResult.count > 1) {
           best = { status: "AMBIGUOUS", bundle: bundleType, file: fname, detail: `${matchResult.count} skeleton matches — fingerprint too loose` };
@@ -225,7 +224,8 @@ function runVerification() {
       }
     }
 
-    results[feature] = best || { status: "UNKNOWN", bundle: bundleType, detail: "no result" };
+    if (!best) best = { status: "STRUCTURAL_REWRITE", bundle: bundleType, detail: "0 skeleton matches in any bundle file — code may have moved/been removed" };
+    results[feature] = best;
 
     // Tally
     const s = best?.status || "UNKNOWN";

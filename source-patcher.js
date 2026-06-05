@@ -27,7 +27,6 @@ const SETTING_FEATURES = {
     "reasoning-start-expanded",
     "reasoning-no-autocollapse",
     "reasoning-no-blink",
-    "no-layout-position",
     "reasoning-no-animate-height",
     "fix-assistant-order",
     "auto-expand-exec",
@@ -106,13 +105,13 @@ const PATCHES = {
   "reasoning-no-autocollapse": {
     name: "reasoning_no_autocollapse_on_finish",
     bundle: "thread",
-    unpatched: /if\(!o\)\{S\(!1\);return\}/,
-    patched: /if\(!o\)\{return\}/,
-    replacement: "if(!o){return}",
+    unpatched: /\(\)=>\{o\|\|S\(!1\)\}/,
+    patched: /C=\(\)=>\{\}/,
+    replacement: "()=>{}",
     skeleton: {
-      match: /if\(!(\w+)\)\{(\w+)\(!1\);return\}/,
-      replacement: (m) => `if(!${m[1]}){return}`,
-      verify: /if\(!\w+\)\{return\}/,
+      match: /(\w+)=\(\)=>\{(\w+)\|\|(\w+)\(!1\)\}/,
+      replacement: (m) => `${m[1]}=()=>{}`,
+      verify: /\w+=\(\)=>\{\}/,
     },
   },
   "reasoning-no-blink": {
@@ -127,28 +126,16 @@ const PATCHES = {
       verify: /\w+=\w+\?!0:\w+/,
     },
   },
-  "no-layout-position": {
-    name: "framer_motion_layout_position_off_thread",
-    bundle: "thread",
-    unpatched: /layout:`position`,/,
-    patched: /layout:!1,/,
-    replacement: "layout:!1,",
-    skeleton: {
-      match: /layout:`position`,/,
-      replacement: () => "layout:!1,",
-      verify: /layout:!1,/,
-    },
-  },
   "reasoning-no-animate-height": {
     name: "reasoning_no_height_transition",
     bundle: "thread",
-    unpatched: /initial:!1,animate:P,transition:yo/,
-    patched: /initial:!1,animate:P,transition:{duration:0}/,
-    replacement: "initial:!1,animate:P,transition:{duration:0}",
+    unpatched: /initial:!1,animate:R,transition:Vo/,
+    patched: /initial:!1,animate:R,transition:\{duration:0\}/,
+    replacement: 'initial:!1,animate:R,transition:{duration:0}',
     skeleton: {
-      match: /initial:!1,animate:P,transition:(\w+)/,
-      replacement: () => "initial:!1,animate:P,transition:{duration:0}",
-      verify: /initial:!1,animate:P,transition:\{duration:0\}/,
+      match: /className:\`pb-0\`,children:(\w+)\}\)[sS]*?Vr\.div,\{initial:!1,animate:(\w+),transition:(\w+)/,
+      replacement: (m) => "className:`pb-0`,children:" + m[1] + "}),Vr.div,{initial:!1,animate:" + m[2] + ",transition:{duration:0}",
+      verify: /initial:!1,animate:\w+,transition:\{duration:0\}/,
     },
   },
   "show-exploration-items": {
@@ -236,17 +223,15 @@ const PATCHES = {
   },
 
 "thought-fade-disable-un": {
-    name: "disable_markdown_fade_un",
+    name: "disable_markdown_fade_rr_loop",
     bundle: "markdown",
-    unpatched: /function Un\(\{content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\)\{let c=Mt\(\{content:e,cwd:t,hostId:i,key:n\?void 0:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\);return n\?\(0,Z\.jsx\)\(`span`,\{className:W\.fadeIn,children:c\},`fade-\$\{r\}`\):c\}/,
-    patched: /function Un\(\{content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\)\{let c=Mt\(\{content:e,cwd:t,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s\}\);return c\}/,
-    replacement: "function Un({content:e,cwd:t,fadeText:n,fadeSegmentIndex:r,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s}){let c=Mt({content:e,cwd:t,hostId:i,key:a,onFileLinkOpen:o,openFileLinksInSidePanel:s});return c}",
+    unpatched: /if\(!n\)\{c\.push\(s\),l\+=1;continue\}c\.push\(\(0,Q\.jsx\)\(`span`,\{className:G\.fadeIn,children:s\},`fade-\$\{l\}`\)\),l\+=1/,
+    patched: /c\.push\(s\),l\+=1;continue/,
+    replacement: "c.push(s),l+=1;continue",
     skeleton: {
-      match: /function (\w+)\(\{content:(\w+),cwd:(\w+),fadeText:(\w+),fadeSegmentIndex:(\w+),hostId:(\w+),key:(\w+),onFileLinkOpen:(\w+),openFileLinksInSidePanel:(\w+)\}\)\{let (\w+)=Mt\(\{content:\2,cwd:\3,hostId:\6,key:n\?void 0:\7,onFileLinkOpen:\8,openFileLinksInSidePanel:\9\}\);return \4\?\(0,(\w+)\.jsx\)\(`span`,\{className:(\w+)\.fadeIn,children:\10\},`fade-\$\{\5\}`\):\10\}/,
-      replacement: (m) => {
-        return `function ${m[1]}({content:${m[2]},cwd:${m[3]},fadeText:${m[4]},fadeSegmentIndex:${m[5]},hostId:${m[6]},key:${m[7]},onFileLinkOpen:${m[8]},openFileLinksInSidePanel:${m[9]}}){let ${m[10]}=Mt({content:${m[2]},cwd:${m[3]},hostId:${m[6]},key:${m[7]},onFileLinkOpen:${m[8]},openFileLinksInSidePanel:${m[9]}});return ${m[10]}}`;
-      },
-      verify: /function \w+\(\{content:\w+,cwd:\w+,fadeText:\w+,fadeSegmentIndex:\w+,hostId:\w+,key:\w+,onFileLinkOpen:\w+,openFileLinksInSidePanel:\w+\}\)\{let \w+=Mt\(\{[^}]+\}\);return \w+\}/,
+      match: /if\(!(\w+)\)\{(\w+)\.push\((\w+)\),(\w+)\+=1;continue\}(\w+)\.push\(\(0,(\w+)\.jsx\)\(`span`,\{className:(\w+)\.fadeIn,children:\3\},`fade-\$\{\4\}`\)\),\4\+=1/,
+      replacement: (m) => `${m[2]}.push(${m[3]}),${m[4]}+=1;continue`,
+      verify: /\w+\.push\(\w\),\w\+=1;continue/,
     },
   },
 };

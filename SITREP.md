@@ -1,66 +1,55 @@
 # SITREP: Reasoning & Exploration Fixes
 
-## Current State: 2026-05-02
+## Current State: 2026-06-05
+
+**Version:** v1.3.2
+**Codex Compatibility:** v26.602.30954
+**Patch Count:** 14/14 working (6 exact + 2 already-applied + 6 auto-healed)
+
+## Changes in v1.3.2
+
+1. **Deleted `no-layout-position`** — Codex removed `layout:"position"` from Framer Motion entirely. Dead code.
+2. **Fixed `reasoning-no-animate-height` skeleton** — Variable renamed from `P` to `R`. Used `className:\`pb-0\`` anchor to uniquely match the reasoning accordion's framer-motion div (was matching 9 occurrences).
+3. **Rewrote `reasoning-no-autocollapse`** — Old `if(!o){S(!1);return}` replaced by `()=>{o||S(!1)}` in useEffect callback. Patch now removes the `||S(!1)` call.
+4. **Rewrote `thought-fade-disable-un`** — Old `function Un(...)` was refactored into loop-based `rr()` function. Fade conditional is now `if(!n){c.push(s)...}c.push(jsx('span',{fadeIn}...))`. Patch removes the fade branch, keeping only the non-fade push path.
+5. **Fixed `verify-patches.js`** — Bug where `STRUCTURAL_REWRITE` was set prematurely for the first bundle file, preventing skeleton matches in subsequent files from being checked.
+
+## Architecture
 
 The tweak no longer contains or invokes an app-bundle patcher. Source-backed behavior
 now follows the regular Codex++ shape:
 
-- `index.js` owns the renderer settings page, live CSS, and the exploration
-  fiber hook.
-- `source-patcher.js` owns main-process source transformation.
-- The main-process tweak wraps Electron's `protocol.handle("app", handler)`
-  registration and patches matching JavaScript responses in memory.
-- Source-backed setting changes are stored through the main-process tweak and
-  schedule a Codex window reload when the already-loaded source needs to be
-  refetched.
-- Disable thinking animation also injects a narrow renderer CSS fallback so the
-  current Thinking label stops shimmering before the reload completes.
-- Unsupported source rules are reported back to the settings page and rendered
-  as warnings near the affected toggle.
+- `index.js` owns the renderer settings page, live CSS, and the exploration fiber hook.
+- `source-patcher.js` owns main-process source transformation with auto-healing skeletons.
+- The main-process tweak wraps Electron's `protocol.handle("app", handler)` registration
+  and patches matching JavaScript responses in memory.
 
 ## Source-Backed Features
 
-The source patcher currently targets these Codex chunks:
+The source patcher targets these Codex chunks:
 
-- `split-items-into-render-groups-*.js`
-- `composer-*.js`
-- `thinking-shimmer-*.js`
+- `split-items-into-render-groups-*.js` (show-reasoning, show-exploration-items, fix-assistant-order, file-edits-no-tool-group)
+- `local-conversation-thread-*.js` (render-standalone-reasoning, reasoning-start-expanded, reasoning-no-autocollapse, reasoning-no-blink, reasoning-no-animate-height, auto-expand-exec, expand-tool-activity)
+- `thinking-shimmer-*.js` (disable-shimmer)
+- `markdown-*.js` (thought-fade-disable, thought-fade-disable-un)
 
-The strict rules preserve the old behavior set:
+## Auto-Healing
 
-- render reasoning outside the exploration buffer
-- let standalone reasoning items reach Codex's reasoning renderer
-- keep reasoning expanded after thinking completes
-- start reasoning expanded
-- keep the agent item body expanded above the assistant response
-- disable streaming blink
-- optionally disable the thinking shimmer
-- keep file-edit cards as standalone main-chat items instead of collapsed tool
-  activity by classifying `patch` as recognized but non-groupable
+Each patch has a `skeleton` with a loose regex (`\w+` captures) that survives minified
+variable renames. When the exact Tier-1 match fails, the skeleton auto-heals by:
+1. Matching with captured variables
+2. Regenerating the replacement text from captures
+3. Verifying with a loose patched regex
 
-`reasoning-full-expand` was intentionally not carried forward as a source rule
-because the settings page already provides the same user-facing choice with live
-CSS while preserving Scroll mode.
+This survives typical Codex updates (variable renames). Structural rewrites (code
+reorganization) still require manual patch updates.
 
 ## Compatibility Model
 
-Each source rule is exact-match and version-sensitive. When Codex serves a
-target chunk, the patcher records one low-level status per rule:
+Each source rule reports status per bundle file:
+- `active` / `available` / `bundled_active` / `unsupported` / `mixed` / `healed_auto`
 
-- `active`
-- `available`
-- `bundled_active`
-- `unsupported`
-- `mixed`
-
-The renderer groups low-level statuses by setting. If a selected setting depends
-on an unsupported or mixed rule, that setting displays:
-
-> This Codex version does not match the known source shape for this feature. The
-> tweak likely needs an update.
-
-This is deliberate. The tweak should fail visibly when Codex changes the
-minified source shape instead of applying guessed replacements.
+The renderer groups statuses by setting and shows warnings for unsupported rules.
 
 ## Files
 
@@ -68,6 +57,8 @@ minified source shape instead of applying guessed replacements.
 manifest.json
 index.js
 source-patcher.js
+scripts/verify-patches.js
 README.md
 SITREP.md
+handoff/HANDOFF-2026-06-05.md
 ```
