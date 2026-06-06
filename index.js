@@ -427,12 +427,12 @@ function applyReasoningStyle(state, style) {
 
   if (style === "expanded") {
     // Remove max-height from the reasoning item body container only.
-    // Codex ships with max-h-35 overflow-y-auto by default (Scroll baseline).
+    // Codex uses vertical-scroll-fade-mask with inline maxHeight (v26.602+).
     // We inject a style that overrides it for Expanded mode.
     const styleEl = document.createElement("style");
     styleEl.id = "reasoning-fixes-expanded";
     styleEl.textContent = `
-      [class~="vertical-scroll-fade-mask"][class~="max-h-35"] {
+      .vertical-scroll-fade-mask {
         max-height: none !important;
         overflow: visible !important;
       }
@@ -444,7 +444,7 @@ function applyReasoningStyle(state, style) {
     });
     api.log.info("reasoning style: expanded");
   } else {
-    // Scroll mode — Codex's baseline already has max-h-35.
+    // Scroll mode — Codex's baseline already constrains vertical-scroll-fade-mask.
     // Just clean up any injected CSS (done above).
     api.log.info("reasoning style: scroll (baseline)");
   }

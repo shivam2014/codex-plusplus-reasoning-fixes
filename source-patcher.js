@@ -97,9 +97,9 @@ const PATCHES = {
     patched: /\[d,f\]=\(0,Q\.useState\)\(!0\)/,
     replacement: "[d,f]=(0,Q.useState)(!0)",
     skeleton: {
-      match: /\[(\w+),(\w+)\]\s*=\s*\(0,([a-zA-Z_$]+)\.useState\)\((\w+)\)/,
-      replacement: (m) => `[${m[1]},${m[2]}]=(0,${m[3]}.useState)(!0)`,
-      verify: /\[(\w+),(\w+)\]\s*=\s*\(0,([a-zA-Z_$]+)\.useState\)\(!0\)/,
+      match: /\[(\w+),(\w+)\]\s*=\s*\(0,([a-zA-Z_$]+)\.useState\)\((\w+)\),(\w+)=!\4&&/,
+      replacement: (m) => `[${m[1]},${m[2]}]=(0,${m[3]}.useState)(!0),${m[5]}=!${m[4]}&&`,
+      verify: /\[(\w+),(\w+)\]\s*=\s*\(0,([a-zA-Z_$]+)\.useState\)\(!0\),(\w+)=!\w+&&/,
     },
   },
   "reasoning-no-autocollapse": {
@@ -818,7 +818,14 @@ function inspectRule(source, rule, state) {
   // meta-bug where the patched regex didn't match the console.log-enhanced output)
   if (unpatchedCount === 0 && patchedCount === 0 && rule.skeleton && rule.skeleton.verify) {
     const verifyCount = countMatches(source, rule.skeleton.verify);
-    if (verifyCount >= 1) return "already";
+    if (verifyCount >= 1) {
+      // Guard: skeleton.verify might match unrelated code (e.g. other useState(!0) calls).
+      // Only return "already" if the skeleton.match doesn't find more hits than verify,
+      // meaning all matches are in the patched state.
+      const matchCount = countMatches(source, rule.skeleton.match);
+      if (matchCount <= verifyCount) return "already";
+      // matchCount > verifyCount: unpatched occurrences exist — fall through to auto-heal
+    }
   }
 
   if (unpatchedCount === 0 && patchedCount === 0) return "unsupported";
